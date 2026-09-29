@@ -1,30 +1,28 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="resources/bridgeclip-logo.svg" />
-    <img src="resources/bridgeclip-logo-light.svg" alt="BridgeClip" height="56" />
+    <source media="(prefers-color-scheme: dark)" srcset="resources/vlasiichukclip-logo.svg" />
+    <img src="resources/vlasiichukclip-logo-light.svg" alt="VlasiichukClip" height="56" />
   </picture>
 </p>
 
 <h3 align="center">Turn long videos into captioned short-form clips, on your own computer.</h3>
 
 <p align="center">
-  An open-source AI clipping app from <a href="https://www.bridgemind.ai">BridgeMind</a>.
-  Drop in a podcast, stream, YouTube link or Twitch VOD link, and BridgeClip finds the strongest moments,
+  An open-source AI clipping app by <a href="https://vlasiichuk.pro">vlasiichuk.pro</a>, based on BridgeClip by BridgeMind.
+  Drop in a podcast, stream, YouTube link or Twitch VOD link, and VlasiichukClip finds the strongest moments,
   cuts them to 9:16 or 16:9, and burns in word-by-word captions.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <a href="https://github.com/bridge-mind/bridgeclip/releases"><img src="https://img.shields.io/github/v/release/bridge-mind/bridgeclip?label=download" alt="Latest release" /></a>
-  <a href="https://www.bridgemind.ai/discord"><img src="https://img.shields.io/badge/Discord-builders-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
-</p>
+  <a href="https://github.com/Hedgehog12/vlasiichukclip/releases"><img src="https://img.shields.io/github/v/release/Hedgehog12/vlasiichukclip?label=download" alt="Latest release" /></a></p>
 
 ---
 
-## Why BridgeClip?
+## Why VlasiichukClip?
 
-- **No BridgeMind account or backend.** BridgeClip runs on your machine and calls OpenRouter directly with your own provider accounts and keys. Optional social account connections use your Zernio account and API key. Your videos and keys do not pass through a BridgeMind server.
-- **Pay only for what you use.** Transcription and clip planning bill your OpenRouter account at their prices. Rendering happens locally with FFmpeg. BridgeClip shows estimated API cost when the providers return usable usage data.
+- **No account or backend.** VlasiichukClip runs on your machine and calls OpenRouter directly with your own provider accounts and keys. Optional social account connections use your Zernio account and API key. Your videos and keys do not pass through any VlasiichukClip server.
+- **Pay only for what you use.** Transcription and clip planning bill your OpenRouter account at their prices. Rendering happens locally with FFmpeg. VlasiichukClip shows estimated API cost when the providers return usable usage data.
 - **Captions that look native.** Nine styles (Viral, Hormozi, Bold, Clean, Minimal, Fire, Glow, Neon, Karaoke), each with a live preview before you render.
 - **MIT licensed.** Fork it, change it, ship it.
 
@@ -45,7 +43,7 @@ In **Create → Format → Video speed**, choose **1×** (normal), **1.1×**, **
 
 ## Download
 
-The release pipeline targets signed/notarized macOS builds for Apple silicon and Intel, signed Windows x64 installers, and Linux x64 AppImage/DEB packages. Official downloads will appear on [Releases](https://github.com/bridge-mind/bridgeclip/releases) after signing setup and release acceptance are complete. Packages bundle Python, FFmpeg and yt-dlp. Until then, use the development setup below; see [release status and verification](docs/RELEASING.md).
+The release pipeline targets signed/notarized macOS builds for Apple silicon and Intel, signed Windows x64 installers, and Linux x64 AppImage/DEB packages. Official downloads will appear on [Releases](https://github.com/Hedgehog12/vlasiichukclip/releases) after signing setup and release acceptance are complete. Packages bundle Python, FFmpeg and yt-dlp. Until then, use the development setup below; see [release status and verification](docs/RELEASING.md).
 
 On first launch, paste your OpenRouter key into the setup card:
 
@@ -53,13 +51,13 @@ On first launch, paste your OpenRouter key into the setup card:
 | --- | --- | --- |
 | OpenRouter | MAI Transcribe 2 transcription and choosing the moments to clip | [openrouter.ai](https://openrouter.ai/keys) |
 
-Keys are encrypted with your operating system's secure storage. If secure storage is unavailable, BridgeClip asks you to configure or unlock it before saving keys.
+Keys are encrypted with your operating system's secure storage. If secure storage is unavailable, VlasiichukClip asks you to configure or unlock it before saving keys.
 
 ### What leaves your computer
 
-For a link, the app downloads the source using your network connection. Audio for MAI Transcribe 2 (Quality), Whisper Turbo (Economy), or your selected transcription model (Advanced) goes to OpenRouter. Transcription retries temporary failures and uses fallback models when needed; Economy tries Whisper Large V3 before MAI. Transcript text for clip planning also goes to OpenRouter. If the video has no audio or no speech, BridgeClip samples video frames and sends those images to OpenRouter for visual-only planning. Clips made through that fallback have no speech captions. Economy skips optional AI layout checks. If you connect social accounts, BridgeClip sends your Zernio API key to Zernio and receives account/profile metadata; platform sign-in occurs in your browser. When you choose **Post** or **Schedule**, BridgeClip uploads that clip to Zernio's media storage and sends its caption, selected accounts and publishing options to Zernio. Zernio then publishes to those platforms. Provider accounts, charges, retention and data policies are governed by those services.
+For a link, the app downloads the source using your network connection. Audio for MAI Transcribe 2 (Quality), Whisper Turbo (Economy), or your selected transcription model (Advanced) goes to OpenRouter. Transcription retries temporary failures and uses fallback models when needed; Economy tries Whisper Large V3 before MAI. Transcript text for clip planning also goes to OpenRouter. If the video has no audio or no speech, VlasiichukClip samples video frames and sends those images to OpenRouter for visual-only planning. Clips made through that fallback have no speech captions. Economy skips optional AI layout checks. If you connect social accounts, VlasiichukClip sends your Zernio API key to Zernio and receives account/profile metadata; platform sign-in occurs in your browser. When you choose **Post** or **Schedule**, VlasiichukClip uploads that clip to Zernio's media storage and sends its caption, selected accounts and publishing options to Zernio. Zernio then publishes to those platforms. Provider accounts, charges, retention and data policies are governed by those services.
 
-Downloads and intermediate media are held in a private `work/` directory under BridgeClip’s per-user application data folder. BridgeClip removes job work on completion, failure, and cancellation, and clears stale work when it next starts after a forced shutdown. A local video you selected stays where it was. Rendered clips, the transcript, plan and `job_output.json` remain in a run folder under your chosen **Output folder** (by default, `~/BridgeClip`). That JSON includes the source URL or local path and video title. Delete the run folder to remove those local outputs.
+Downloads and intermediate media are held in a private `work/` directory under VlasiichukClip’s per-user application data folder. VlasiichukClip removes job work on completion, failure, and cancellation, and clears stale work when it next starts after a forced shutdown. A local video you selected stays where it was. Rendered clips, the transcript, plan and `job_output.json` remain in a run folder under your chosen **Output folder** (by default, `~/VlasiichukClip`). That JSON includes the source URL or local path and video title. Delete the run folder to remove those local outputs.
 
 Settings, the last synced list of connected accounts (platforms, handles and Zernio IDs), local posting history, and upload retry records live in Electron's per-user application data folder. Posting history can include clip paths and titles, account handles, targets, status and links; retry records can include a clip path and an uploaded media URL. Changing or removing the Zernio key switches to a separate local post history and quarantines the old account and upload retry caches. Returning to the same key restores its saved post history; a newly rotated key has separate history. Quarantined copies remain on disk until a later cleanup after 30 days; to erase them immediately, quit the app and delete the `zernio-*.quarantine-*` files from its application data folder. Key changes do not delete media or posts already held by Zernio or a social platform. Diagnostic logs live in the per-user logs folder. Remove provider keys in Settings to clear their encrypted saved copies, and review logs before sharing them in an issue.
 
@@ -67,24 +65,24 @@ Only download or clip material you have permission to use. Remote sites may limi
 
 ### Clip a Twitch VOD
 
-Paste a public, completed Twitch video link such as `https://www.twitch.tv/videos/1234567890` into Create, then choose your clip settings and generate. BridgeClip downloads the saved video and uses the same transcription, AI moment selection and rendering flow as other sources. Links on `twitch.tv`, `www.twitch.tv`, `m.twitch.tv` and `go.twitch.tv` are accepted and normalized to the canonical video URL.
+Paste a public, completed Twitch video link such as `https://www.twitch.tv/videos/1234567890` into Create, then choose your clip settings and generate. VlasiichukClip downloads the saved video and uses the same transcription, AI moment selection and rendering flow as other sources. Links on `twitch.tv`, `www.twitch.tv`, `m.twitch.tv` and `go.twitch.tv` are accepted and normalized to the canonical video URL.
 
-Live channels, Twitch clips, collections, subscriber-only videos and deleted or expired VODs are not supported. No Twitch login or cookies are used. The original source must be at most six hours and 20 GB. BridgeClip downloads the full source before applying the optional start and end times; a link's timestamp or tracking parameters are ignored. For a longer source, trim a downloaded file before adding it. Downloads also stop after four hours or when less than 1 GB of free space would remain.
+Live channels, Twitch clips, collections, subscriber-only videos and deleted or expired VODs are not supported. No Twitch login or cookies are used. The original source must be at most six hours and 20 GB. VlasiichukClip downloads the full source before applying the optional start and end times; a link's timestamp or tracking parameters are ignored. For a longer source, trim a downloaded file before adding it. Downloads also stop after four hours or when less than 1 GB of free space would remain.
 
 ## Develop
 
-**Prerequisites:** Node.js 22, Python 3.12, and FFmpeg with the libass-backed `ass` filter for captions. The clipping engine, model, fonts, and locked Python dependencies are included in this repository. In development, BridgeClip uses FFmpeg from `engine-bin/` when it exists, then falls back to your `PATH`. Provider keys are needed for live jobs, not tests.
+**Prerequisites:** Node.js 22, Python 3.12, and FFmpeg with the libass-backed `ass` filter for captions. The clipping engine, model, fonts, and locked Python dependencies are included in this repository. In development, VlasiichukClip uses FFmpeg from `engine-bin/` when it exists, then falls back to your `PATH`. Provider keys are needed for live jobs, not tests.
 
 ```bash
-git clone https://github.com/bridge-mind/bridgeclip
-cd bridgeclip
+git clone https://github.com/Hedgehog12/vlasiichukclip
+cd vlasiichukclip
 python3.12 -m venv engine/.venv
 engine/.venv/bin/pip install --require-hashes -r engine/requirements.lock
 npm ci
 npm run dev
 ```
 
-BridgeClip finds its in-repo engine and virtual environment automatically. **Settings → System check** shows the Python, yt-dlp, FFmpeg, and engine checks; set **Python path** in development if you use another interpreter.
+VlasiichukClip finds its in-repo engine and virtual environment automatically. **Settings → System check** shows the Python, yt-dlp, FFmpeg, and engine checks; set **Python path** in development if you use another interpreter.
 
 On Linux, use system FFmpeg with the libass-backed `ass` filter (`ffmpeg -hide_banner -filters | grep -E '[[:space:]]ass[[:space:]]'`) and Python 3.12. Arch: `sudo pacman -S ffmpeg`. Skip `scripts/prepare-resources.sh` during development; it prepares macOS release resources. Linux development and tests are supported, but a self-contained Linux package is not yet available.
 
@@ -121,17 +119,17 @@ Private release workflows package the in-repo engine and media tools for macOS, 
 | `npm run test:main` | Check desktop security and pipeline regressions |
 | `npm run test:zernio` | Check social account, upload and posting flows against local mocks |
 | `npm run dist:mac` | Package the current Mac architecture into `dist/` after preparing matching resources (signing needs a Developer ID) |
-| `npm run icons` | Export app icons from the imagegen master `resources/bridgeclip-icon.png` (macOS; see `scripts/icon/README.md`) |
+| `engine/.venv/Scripts/python.exe scripts/icon/make-icons.py` | Export app icons from the vlasiichuk.pro mark (any OS; see `scripts/icon/README.md`) |
 
 ### Project layout
 
 ```
 src/main/        Electron main process: settings, pipeline runner, IPC, optional Zernio posting
-src/preload/     The typed window.bridgeclip API exposed to the renderer
+src/preload/     The typed window.vlasiichukclip API exposed to the renderer
 src/renderer/    React UI (Create, Library, Jobs, Accounts, Posts, Automations, Settings)
 src/shared/      Product constants shared by main and renderer
 bridge/          Python worker protocol and network guard
-engine/          BridgeClip clipping engine, assets, locked Python dependencies, and tests
+engine/          VlasiichukClip clipping engine, assets, locked Python dependencies, and tests
 scripts/icon/    Icon and logo generators
 ```
 
@@ -145,4 +143,4 @@ Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) fo
 
 ## License
 
-[MIT](LICENSE) © BridgeMind
+[MIT](LICENSE) © Julian Vlasiichuk. Based on BridgeClip, © BridgeMind LLC, used under the MIT license.

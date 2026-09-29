@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 100" role="img" aria-label="VlasiichukClip">
+  <title>VlasiichukClip</title>
+  <circle cx="50" cy="50" r="46" fill="#1d1d1f"/>
+  <path d="M30 30L50 70L70 30M43 51L50 64L57 51" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="122" y="70" fill="#1d1d1f" font-family="Geist, 'Geist Variable', Arial, sans-serif" font-size="56" letter-spacing="-1.1"><tspan font-weight="600">Vlasiichuk</tspan><tspan font-weight="400">Clip</tspan></text>
+</svg>

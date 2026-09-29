@@ -1,11 +1,11 @@
-import type { BridgeClipAPI } from '../../preload/index'
+import type { VlasiichukClipAPI } from '../../preload/index'
 
 declare global {
   interface Window {
-    bridgeclip: BridgeClipAPI
+    vlasiichukclip: VlasiichukClipAPI
   }
 }
 
-export function getApi(): BridgeClipAPI {
-  return window.bridgeclip
+export function getApi(): VlasiichukClipAPI {
+  return window.vlasiichukclip
 }

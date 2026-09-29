@@ -8,7 +8,7 @@ for (const key of ['SIGNING_ENDPOINT', 'SIGNING_ACCOUNT', 'SIGNING_PROFILE']) {
 config.forceCodeSigning = true
 delete config.win.signtoolOptions
 config.win.azureSignOptions = {
-  publisherName: 'BRIDGEMIND LLC',
+  publisherName: 'Julian Vlasiichuk',
   endpoint: process.env.SIGNING_ENDPOINT,
   codeSigningAccountName: process.env.SIGNING_ACCOUNT,
   certificateProfileName: process.env.SIGNING_PROFILE,

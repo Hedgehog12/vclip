@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Export only files named in public-draft-manifest.txt. Use a new destination so
 # this command cannot erase a previous review or write inside the source checkout.
-destination="${1:?Pass a new draft directory outside the BridgeClip source repository}"
+destination="${1:?Pass a new draft directory outside the VlasiichukClip source repository}"
 bridge_source="$(cd "$(dirname "$0")/.." && pwd)"
 
 python3 - "$bridge_source" "$destination" <<'PY'
@@ -20,14 +20,14 @@ if requested_destination.exists() or requested_destination.is_symlink():
 destination = requested_destination.resolve(strict=False)
 manifest_path = bridge_source / "scripts/public-draft-manifest.txt"
 
-roots = {"bridgeclip": bridge_source}
+roots = {"vlasiichukclip": bridge_source}
 scanned_dirs = {
-    "bridgeclip": (".github", "bridge", "build", "docs", "engine", "resources", "scripts", "src", "tests"),
+    "vlasiichukclip": (".github", "bridge", "build", "docs", "engine", "resources", "scripts", "src", "tests"),
 }
 # Older planning and deployment notes are intentionally outside the public
 # snapshot. Any other addition to a scanned directory needs manifest review.
 excluded = {
-    "bridgeclip": {"docs/CLIPPING_REDESIGN_PLAN.md", "src/main/callback-server.ts"},
+    "vlasiichukclip": {"docs/CLIPPING_REDESIGN_PLAN.md", "src/main/callback-server.ts"},
 }
 generated_dirs = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv"}
 generated_files = {".DS_Store"}
@@ -96,7 +96,7 @@ parent = destination.parent.resolve(strict=True)
 if destination.exists() or destination.is_symlink():
     fail("choose a new destination path")
 if any(parent == source or source in parent.parents for source in roots.values()):
-    fail("choose a destination outside the BridgeClip source repository")
+    fail("choose a destination outside the VlasiichukClip source repository")
 if parent == Path("/"):
     fail("choose a dedicated parent directory for the draft")
 
@@ -109,6 +109,6 @@ for name, source in roots.items():
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / relative, output, follow_symlinks=False)
 
-print(f"Reviewable BridgeClip source draft created at {destination}.")
+print(f"Reviewable VlasiichukClip source draft created at {destination}.")
 print("Review ownership, dependency rights, and secret-scan results before publishing.")
 PY

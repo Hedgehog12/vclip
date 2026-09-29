@@ -5,7 +5,7 @@
 // or social account is ever involved.
 //
 //   const mock = await createMockZernio({ apiKey: 'test-key', extraRoutes })
-//   BRIDGECLIP_ZERNIO_API_URL=mock.apiUrl  BRIDGECLIP_E2E_BROWSER_URL=mock.browserUrl
+//   VLASIICHUKCLIP_ZERNIO_API_URL=mock.apiUrl  VLASIICHUKCLIP_E2E_BROWSER_URL=mock.browserUrl
 //
 // Other suites (posting) add endpoints with `extraRoutes`; they are matched
 // before the built-in routes:
@@ -206,7 +206,7 @@ async function createMockZernio(options = {}) {
     return state.accounts.find((a) => a.platform === platform && a.profileId._id === profileId)
   }
 
-  // ---- Built-in API routes (subset of Zernio v1 used by BridgeClip) ----------
+  // ---- Built-in API routes (subset of Zernio v1 used by VlasiichukClip) ----------
   const builtins = [
     { method: 'GET', path: '/api/v1/profiles', handler: (ctx) => ctx.json(200, { profiles: state.profiles }) },
     {

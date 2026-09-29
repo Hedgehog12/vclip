@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Installer, [string]$Publisher = 'BRIDGEMIND LLC')
+param([Parameter(Mandatory=$true)][string]$Installer, [string]$Publisher = 'Julian Vlasiichuk')
 $ErrorActionPreference = 'Stop'
 function Assert-Signature([string]$Path) {
     $signature = Get-AuthenticodeSignature -LiteralPath $Path
@@ -7,18 +7,18 @@ function Assert-Signature([string]$Path) {
     if ($name -cne $Publisher) { throw "Unexpected publisher: $name" }
 }
 Assert-Signature $Installer
-$destination = Join-Path $env:RUNNER_TEMP 'BridgeClip installed acceptance'
+$destination = Join-Path $env:RUNNER_TEMP 'VlasiichukClip installed acceptance'
 if (Test-Path $destination) { throw 'Installation directory already exists' }
 $process = Start-Process -FilePath (Resolve-Path $Installer) -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
 if ($process.ExitCode -ne 0) { throw 'NSIS installation failed' }
-$application = Join-Path $destination 'BridgeClip.exe'
+$application = Join-Path $destination 'VlasiichukClip.exe'
 Assert-Signature $application
-Assert-Signature (Join-Path $destination 'Uninstall BridgeClip.exe')
+Assert-Signature (Join-Path $destination 'Uninstall VlasiichukClip.exe')
 $expected = (Get-Content package.json -Raw | ConvertFrom-Json).version
 if ((Get-Item $application).VersionInfo.ProductVersion -ne $expected) { throw 'Installed version mismatch' }
 python scripts/release/verify-runtime.py (Join-Path $destination 'resources')
 if ($LASTEXITCODE -ne 0) { throw 'Installed runtime verification failed' }
-$probe = Start-Process -FilePath $application -ArgumentList "--user-data-dir=`"$env:RUNNER_TEMP\bridgeclip-acceptance-profile`"" -PassThru
+$probe = Start-Process -FilePath $application -ArgumentList "--user-data-dir=`"$env:RUNNER_TEMP\vlasiichukclip-acceptance-profile`"" -PassThru
 Start-Sleep -Seconds 8
 $probe.Refresh()
 if ($probe.HasExited) { throw 'Installed app exited during startup' }

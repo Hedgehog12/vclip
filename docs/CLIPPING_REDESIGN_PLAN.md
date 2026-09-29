@@ -11,7 +11,7 @@ Users see one layout because of four stacked failures, not one:
 | # | Root cause | Status | Where |
 |---|---|---|---|
 | RC1 | Every smart render fails inside FFmpeg on an audio channel-layout error and silently re-renders as the blurred letterbox, **also discarding pacing cuts**. Today's log: 16 failures, 17 of 18 clips came out `fit`. | Verified + reproduced; fix verified | `<legacy-engine-checkout>/app/services/layout_renderer.py:280`, `rendering_service.py:181-195` |
-| RC2 | Release builds pin the legacy engine at `1d2c2fd`, the April center-crop engine. The installed 0.1.16 has no layout code, no face model, no OpenCV. The current working tree would **fail every job** against that pin (bridge passes `layout_style`/`pacing`, which `1d2c2fd` doesn't accept). | Verified | `bridgeclip/.github/workflows/release.yml:88`, `bridge/bridge_runner.py:151-152` |
+| RC2 | Release builds pin the legacy engine at `1d2c2fd`, the April center-crop engine. The installed 0.1.16 has no layout code, no face model, no OpenCV. The current working tree would **fail every job** against that pin (bridge passes `layout_style`/`pacing`, which `1d2c2fd` doesn't accept). | Verified | `vlasiichukclip/.github/workflows/release.yml:88`, `bridge/bridge_runner.py:151-152` |
 | RC3 | Concurrent renders share one YuNet detector; OpenCV 5 asserts and that clip falls back to letterbox. OpenCV 5's DNN engine is also ~5x slower. | Verified + reproduced | `layout_analyzer.py:839-845`, `requirements.txt` |
 | RC4 | Even when it works, each layout has one fixed arrangement: always 50/50, screen always on top, webcam panel over-zoomed ~5x, webcam bleeding into the screen panel. | Verified (design + rendered frames) | `layout_renderer.py:24, 131-142, 183-190` |
 
@@ -69,7 +69,7 @@ Also: the planner's content-type classification (`insights`) is thrown away, and
 - **Smart silently becomes Classic.** OpenCV is optional in the engine, `validatePython` (`pipeline-runner.ts:153-154`) doesn't import it, and the UI parses `layout_type` but never shows it.
 - **Wrong-arch binaries.** The installed arm64 app bundles x86_64 Python and FFmpeg, so rendering runs under Rosetta. The likely cause is that each CI leg builds both archs (`electron-builder.yml:51-59`).
 - **Unpinned OpenCV** resolved to 5.0.0 (the race above). The 4.13+ Intel wheels need macOS 14.
-- **Engine is private** (the separate legacy engine repository), which blocks "fully open source". The auto-update repo `bridge-mind/bridgeclip` returns 404.
+- **Engine is private** (the separate legacy engine repository), which blocks "fully open source". The auto-update repo `Hedgehog12/vlasiichukclip` returns 404.
 - **Layout plans are saved lossily**, keyed by the original clip index, which misaligns once any clip fails and the rest are renumbered (`ai_clipping_pipeline.py:422-427, 698-725`). Downloaded sources are deleted with the work dir.
 - **The paid layout-vision call is on by default**, has no toggle, and is missing from the cost breakdown (`ClipList.tsx:229-235`).
 - **No post-render editing at all:** no in-app player, layout badge, per-shot layout swap, crop nudge, split ratio/swap, trim, caption edit or single-clip re-render.
@@ -199,7 +199,7 @@ Motion rules:
 ### Phase 1: Ship it (about 1 week)
 
 1. **Commit** the legacy engine's framing work: `layout_*`, `clip_editor`, `openrouter`, `assets/models/`.
-2. **Publish the legacy engine** (MIT, already prepared) and bump BridgeClip's release pin to the commit that contains the framing work. _(Decided; see §5.)_
+2. **Publish the legacy engine** (MIT, already prepared) and bump VlasiichukClip's release pin to the commit that contains the framing work. _(Decided; see §5.)_
 3. **Contract check:** the bridge sends a `contract_version`, and CI runs `test:bridge` against the bundled engine.
 4. **Preflight:** `validatePython` imports `cv2` and checks `LayoutAnalyzer().available`. The CI smoke test does the same, plus one tiny render through the bundled FFmpeg.
 5. **Packaging:** one arch per CI job, and assert with `file` that the bundled Python and FFmpeg match the arch. Add the FFmpeg GPL notice and source offer.
@@ -212,7 +212,7 @@ Motion rules:
 
 **Progress (2026-09-23, working trees):** Phase 0 fixes and the Phase 1 app/engine integration are implemented. The bridge checks its engine contract and Smart model availability; macOS release jobs stage one architecture each; users can switch paid vision on or off; and clip results preserve framing and pacing details. Confirmed silent or audio-free sources have bounded visual clip planning with clear caption status. The FFmpeg 8.1.3 build with libass passed caption/audio renders and 53 layout tests. The deterministic offline framing baseline has five golden scenes. An unsigned arm64 app passed the packaged resource check. The code and tests remain uncommitted in the current working trees.
 
-**Release work still required:** Publish and review the legacy engine source, replace the engine source pin file's `UNPINNED` placeholder with that reviewed commit, publish BridgeClip, and run signed/notarized install tests on both macOS architectures. A paid provider run and a real Zernio account/post run still require project credentials. Phase 2–5 below are a longer product roadmap and are not implemented by the Phase 0–1 fixes.
+**Release work still required:** Publish and review the legacy engine source, replace the engine source pin file's `UNPINNED` placeholder with that reviewed commit, publish VlasiichukClip, and run signed/notarized install tests on both macOS architectures. A paid provider run and a real Zernio account/post run still require project credentials. Phase 2–5 below are a longer product roadmap and are not implemented by the Phase 0–1 fixes.
 
 **Exit criteria:** a fresh install from the release DMG renders the reference screen-share video as screen-over-cam, with a natively running (arm64) engine on Apple Silicon.
 
@@ -295,7 +295,7 @@ Motion rules:
 - No-speech sources produce signal-based clips instead of crashing.
 - Human preference beats v1 on paired comparisons.
 
-### Phase 4: Clip editor in BridgeClip (2–3 weeks)
+### Phase 4: Clip editor in VlasiichukClip (2–3 weeks)
 
 1. **In-app player** with a live canvas preview composited from the source or proxy using the spec's rects. It shares one geometry module with the renderer, so **preview equals export**.
 2. **Per-segment template dropdown** (only templates whose preconditions pass are enabled), with hover preview.
@@ -353,7 +353,7 @@ Motion rules:
 ## 5. Decisions
 
 **Decided 2026-09-24 (supersedes the 2026-09-23 engine decision):**
-- **Engine:** the clipping engine lives in `bridgeclip/engine/` (package `clip_engine`) under MIT, and release builds package it directly. The former engine repository is deprecated; BridgeClip no longer pins, stages or reads it. Legacy engine references elsewhere in this plan are historical.
+- **Engine:** the clipping engine lives in `vlasiichukclip/engine/` (package `clip_engine`) under MIT, and release builds package it directly. The former engine repository is deprecated; VlasiichukClip no longer pins, stages or reads it. Legacy engine references elsewhere in this plan are historical.
 
 **Decided 2026-09-23:**
 - **Vision check:** only when local confidence is low, once per setup, with a toggle and a cost line.
@@ -362,7 +362,7 @@ Motion rules:
 Still open: bundle size (item 2) and default split (item 4). Both default to the recommendations below.
 
 
-1. **Engine location.** Recommended: move the stripped local engine into `bridgeclip/engine/` under MIT. Alternative: publish the legacy engine repository as MIT and keep pinning it. Staying private blocks open source and keeps causing pin drift like RC2.
+1. **Engine location.** Recommended: move the stripped local engine into `vlasiichukclip/engine/` under MIT. Alternative: publish the legacy engine repository as MIT and keep pinning it. Staying private blocks open source and keeps causing pin drift like RC2.
 2. **Bundle size.** Is ~+150 MB for OpenCV acceptable? (No torch/mediapipe; that's the minimum for local smart framing.)
 3. **Vision LLM default.** Recommended: local-first, calling the vision model only on low confidence, once per setup, with a visible toggle and cost line. Today it's on for every shot, hidden from the cost breakdown.
 4. **Default split for screen + cam.** Recommended: screen 60 / cam 40, with the resolver dropping to `screen_fit_cam` or `pip` when the webcam is too small to fill 40% without exceeding the upscale budget.
@@ -370,6 +370,6 @@ Still open: bundle size (item 2) and default split (item 4). Both default to the
 
 ## 6. Evidence
 
-- App log: `~/Library/Logs/BridgeClip/bridgeclip.log`, with 16× `Cannot select channel layout` / `Smart render failed, retrying as classic letterbox`.
+- App log: `~/Library/Logs/VlasiichukClip/vlasiichukclip.log`, with 16× `Cannot select channel layout` / `Smart render failed, retrying as classic letterbox`.
 - The reviewers' repro scripts, captured FFmpeg commands and rendered frames were written to this session's temporary scratchpad (`framing/`, `clipping/`, `product/`). Copy them out if they should be kept.
 - Pre-refactor stack for salvage: `git -C <legacy-engine-checkout> show 810da77^:<path>`. Past zoom failures: `<legacy-engine-checkout>/README_FACE_CROPPING_ZOOM_ANALYSIS.md`, `ZOOM_FIX_PLAN_*.md`.
