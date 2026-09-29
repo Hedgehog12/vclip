@@ -3,6 +3,7 @@ import { constants, realpathSync, statSync } from 'fs'
 import { open, type FileHandle } from 'fs/promises'
 import { extname, isAbsolute, relative, resolve, sep } from 'path'
 import { AUTHOR_URL, ISSUES_URL, PROVIDER_LINKS, REPO_URL, ZERNIO_LINKS } from '../shared/brand'
+import { sameFile } from './file-identity'
 
 export function assertTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow | null): void {
   if (!window || window.isDestroyed() || event.sender !== window.webContents ||
@@ -65,7 +66,7 @@ export async function openAuthorizedMedia(path: string, outputDirectory: string)
     const currentPath = realpathSync(canonical)
     const current = statSync(currentPath)
     assertMediaPath(currentPath, outputDirectory)
-    if (!opened.isFile() || currentPath !== canonical || opened.dev !== current.dev || opened.ino !== current.ino) {
+    if (!opened.isFile() || currentPath !== canonical || !sameFile(opened, current)) {
       throw new Error('Media changed while opening')
     }
     return { handle, size: opened.size, canonical }

@@ -10,6 +10,8 @@ export interface ClipArtifact {
   tags: string[]
   /** Set when smart framing failed and a letterbox fallback produced the clip. */
   render_fallback: string | null
+  /** The reviewed idea this clip was rendered from (idea-01 …). */
+  idea_id?: string | null
 }
 
 export interface JobOutput {
@@ -168,7 +170,8 @@ export function parseJobOutput(value: unknown): JobOutput | null {
       layout_type: typeof item.layout_type === 'string' && ['talking_head', 'two_shot', 'screen_cam', 'screen', 'fit', 'center_crop'].includes(item.layout_type) ? item.layout_type : '',
       summary: boundedText(item.summary, 2048),
       tags: Array.isArray(item.tags) ? item.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 50).map((tag) => tag.slice(0, 64)) : [],
-      render_fallback: boundedText(item.render_fallback, 256)
+      render_fallback: boundedText(item.render_fallback, 256),
+      idea_id: typeof item.idea_id === 'string' && /^idea-\d{2,3}$/.test(item.idea_id) ? item.idea_id : null
     })
   }
   return {

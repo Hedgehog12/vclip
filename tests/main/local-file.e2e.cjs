@@ -23,7 +23,7 @@ test('Electron serves only library media and supports bounded byte ranges', asyn
   t.after(() => session.close())
   const request = (file, range) => session.app.evaluate(async ({ net }, { file, range }) => {
     const headers = range ? { Range: range } : {}
-    const response = await net.fetch(`local-file://${encodeURIComponent(file)}`, { headers })
+    const response = await net.fetch(`local-file://media/${encodeURIComponent(file)}`, { headers })
     return { status: response.status, body: await response.text(), range: response.headers.get('content-range') }
   }, { file, range })
   assert.deepEqual(await request(inside, 'bytes=2-5'), { status: 206, body: '2345', range: 'bytes 2-5/10' })
@@ -33,6 +33,9 @@ test('Electron serves only library media and supports bounded byte ranges', asyn
     const image = new Image()
     image.onload = () => resolve(true)
     image.onerror = () => resolve(false)
-    image.src = `local-file://${encodeURIComponent(file)}`
+    image.src = `local-file://media/${encodeURIComponent(file)}`
   }), image), true)
+  const otherHost = await session.app.evaluate(async ({ net }, file) =>
+    (await net.fetch(`local-file://elsewhere/${encodeURIComponent(file)}`)).status, inside)
+  assert.equal(otherHost, 404)
 })

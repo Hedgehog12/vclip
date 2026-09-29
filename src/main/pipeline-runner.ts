@@ -15,7 +15,12 @@ import type { OpenRouterModel } from '../shared/openrouter-models'
 import { finishRunRecord, type StoredRunStatus } from './run-history'
 import { resolveBinary } from './tools'
 
-export type ClipJobConfig = ClipJobRequest & { plannerCapabilities?: OpenRouterModel }
+export type ClipJobConfig = ClipJobRequest & {
+  plannerCapabilities?: OpenRouterModel
+  /** Set by main only: 'render' renders approved ideas of a reviewed run. */
+  phase?: 'analyze' | 'render'
+  approvedIdeaIds?: string[]
+}
 
 /**
  * Where a run's events go. The job manager passes its own sink so it can track
@@ -39,7 +44,7 @@ export interface ResultUpdate {
   type: 'result'
   status: string
   job_id: string
-  output: Record<string, unknown>
+  output?: Record<string, unknown>
 }
 
 export interface ErrorUpdate {
@@ -355,6 +360,7 @@ export function startClipJob(
 
   logger.info('job.start', {
     jobId,
+    phase: config.phase ?? 'analyze',
     sourceType: config.videoUrl.startsWith('http') ? 'remote' : 'local',
     maxClips: config.maxClips,
     autoClipCount: config.autoClipCount,
@@ -385,9 +391,12 @@ export function startClipJob(
     return
   }
 
+  const renderPhase = config.phase === 'render'
   const jobConfig = JSON.stringify({
     contract_version: BRIDGE_CONTRACT_VERSION,
     job_id: jobId,
+    phase: renderPhase ? 'render' : 'analyze',
+    ...(renderPhase ? { approved_idea_ids: config.approvedIdeaIds ?? [] } : {}),
     video_url: config.videoUrl,
     clipping_mode: config.clippingMode ?? 'quality',
     ...(config.clippingMode === 'advanced' ? {
@@ -473,6 +482,7 @@ export function startClipJob(
   let errored = false
   let completed = false
   let pendingOutput: JobOutput | null = null
+  let pendingAwaiting = false
   const startedAt = Date.now()
 
   const MAX_BRIDGE_LINE_BYTES = 1024 * 1024
@@ -521,9 +531,13 @@ export function startClipJob(
             percent: Number.isFinite(msg.percent) ? msg.percent : 0,
             clips_done: Number.isFinite(msg.clips_done) ? msg.clips_done : 0,
             clips_total: Number.isFinite(msg.clips_total) ? msg.clips_total : 0 })
+        } else if (msg.type === 'result' && msg.status === 'awaiting_approval' && !renderPhase &&
+            msg.job_id === jobId && !pendingAwaiting && !pendingOutput) {
+          // Ideas are saved; the run pauses for the user once Python exits cleanly.
+          pendingAwaiting = true
         } else if (msg.type === 'result') {
           const output = parseJobOutput(msg.output)
-          if (output && !pendingOutput && msg.status === 'completed' && msg.job_id === jobId && output.job_id === jobId) {
+          if (output && !pendingOutput && !pendingAwaiting && msg.status === 'completed' && msg.job_id === jobId && output.job_id === jobId) {
             // The result line can arrive before Python exits. A successful exit
             // confirms the engine finished its cleanup and committed the run.
             pendingOutput = output
@@ -618,6 +632,12 @@ export function startClipJob(
       completed = true
       finishHistory('completed')
       send('job:complete', { type: 'result', status: 'completed', jobId, job_id: jobId, output: pendingOutput })
+      return
+    }
+    if (code === 0 && pendingAwaiting) {
+      completed = true
+      finishHistory('awaiting_approval')
+      send('job:awaiting', { type: 'result', status: 'awaiting_approval', jobId, job_id: jobId })
       return
     }
 

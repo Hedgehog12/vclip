@@ -134,8 +134,16 @@ function createWindow(): void {
   }
 }
 
+const MEDIA_REFUSALS: Record<string, string> = {
+  'Invalid media path': 'invalid_path',
+  'Media file is outside the library': 'outside_library',
+  'Media changed while opening': 'changed_while_opening'
+}
+
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'local-file', privileges: { stream: true, supportFetchAPI: true } }
+  // Standard and secure: Chromium only issues seekable range requests for
+  // video on standard schemes; otherwise any jump past the start fails.
+  { scheme: 'local-file', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } }
 ])
 
 app.whenReady().then(() => {
@@ -164,7 +172,9 @@ app.whenReady().then(() => {
     let media: Awaited<ReturnType<typeof openAuthorizedMedia>> | undefined
     try {
       if (request.method !== 'GET' && request.method !== 'HEAD') return new Response(null, { status: 405 })
-      const filePath = decodeURIComponent(request.url.slice('local-file://'.length))
+      const url = new URL(request.url)
+      if (url.host !== 'media') return new Response(null, { status: 404 })
+      const filePath = decodeURIComponent(url.pathname.slice(1))
       if (isAutomationMedia(filePath)) authorizeMedia(filePath)
       media = await openAuthorizedMedia(filePath, loadSettings().outputDirectory)
       const mimeType: Record<string, string> = {
@@ -209,8 +219,12 @@ app.whenReady().then(() => {
       }
       const stream = media.handle.createReadStream({ start, end, autoClose: true })
       return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, { status, headers })
-    } catch {
+    } catch (error) {
       await media?.handle.close().catch(() => {})
+      // A fixed code only: file-system errors carry the requested path.
+      const refusal = error instanceof Error && MEDIA_REFUSALS[error.message] ? MEDIA_REFUSALS[error.message]
+        : (error as NodeJS.ErrnoException)?.code === 'ENOENT' ? 'missing' : 'other'
+      logger.warn('media.unavailable', { refusal })
       return new Response('Media unavailable', { status: 403 })
     }
   })

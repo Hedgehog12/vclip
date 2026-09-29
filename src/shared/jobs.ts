@@ -32,12 +32,80 @@ export const MAX_FINISHED_JOBS = 50
 
 export type ActiveJobStatus = 'queued' | 'pending' | 'downloading' | 'transcribing' | 'planning' | 'rendering' | 'uploading'
 export type TerminalJobStatus = 'completed' | 'failed' | 'cancelled'
-export type JobStatus = ActiveJobStatus | TerminalJobStatus
+/** Ideas are ready: the job holds no slot and waits for the user to approve some. */
+export type AwaitingJobStatus = 'awaiting_approval'
+export type JobStatus = ActiveJobStatus | TerminalJobStatus | AwaitingJobStatus
 
 export const ACTIVE_JOB_STATUSES: readonly ActiveJobStatus[] = ['queued', 'pending', 'downloading', 'transcribing', 'planning', 'rendering', 'uploading']
 
 export function isActiveJobStatus(status: string): status is ActiveJobStatus {
   return (ACTIVE_JOB_STATUSES as readonly string[]).includes(status)
+}
+
+/** Idea ids as the engine writes them (idea-01 …). */
+export const IDEA_ID_PATTERN = /^idea-\d{2,3}$/
+export const MAX_IDEAS_PER_RENDER = 100
+
+export type IdeaDecision = 'approved' | 'rejected'
+
+export interface ReviewIdea {
+  id: string
+  rank: number
+  recommended: boolean
+  rendered: boolean
+  clipIndex: number | null
+  title: string
+  pitch: string | null
+  description: string | null
+  excerpt: string
+  scores: Partial<Record<'hook' | 'standalone' | 'arc' | 'quotability' | 'ending', number>>
+  viralityScore: number
+  startMs: number
+  endMs: number
+  /** Longform tangents the render cuts out, in source ms. */
+  skipRanges: [number, number][]
+  tags: string[]
+}
+
+export interface JobReview {
+  jobId: string
+  status: 'awaiting_approval' | 'completed' | 'cancelled' | 'failed'
+  /** A render round for this job is queued or running. */
+  busy: boolean
+  videoTitle: string
+  /** How many ideas the user asked for, or all of them when the AI decided. */
+  recommendedCount: number
+  autoClipCount: boolean
+  ideas: ReviewIdea[]
+  decisions: Record<string, IdeaDecision>
+  /** Absolute path of a playable source, or null when it is gone. */
+  sourcePath: string | null
+  sourceDownloaded: boolean
+  sourceBytes: number | null
+  /** The last render round's failure, shown until the next round. */
+  lastError: string | null
+}
+
+export interface RunStorage {
+  jobId: string
+  videoTitle: string
+  date: string
+  status: string
+  outputDir: string
+  /** The downloaded stream kept for more ideas; 0 when deleted or never downloaded. */
+  sourceBytes: number
+  /** The job used the user's own file, which the app never deletes or counts. */
+  sourceIsUserFile: boolean
+  clipBytes: number
+  otherBytes: number
+  totalBytes: number
+  busy: boolean
+}
+
+export interface StorageUsage {
+  runs: RunStorage[]
+  totalBytes: number
+  sourceBytes: number
 }
 
 /**

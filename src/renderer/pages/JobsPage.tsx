@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Ban, FolderOpen, ListVideo, Plus, RefreshCw, RotateCcw, Search, X } from 'lucide-react'
+import { Ban, FolderOpen, Lightbulb, ListVideo, Plus, RefreshCw, RotateCcw, Search, X } from 'lucide-react'
 import type { HistoryEntry } from '../../preload/index'
 import { parseJobOutput } from '../../shared/job-output'
 import { MAX_PARALLEL_JOBS } from '../../shared/jobs'
 import { BackLink, ClipList } from '../components/ClipList'
+import { IdeaReview } from '../components/IdeaReview'
 import { JobFailure, JobProgress, STAGE_LABELS } from '../components/JobProgress'
+import { StoragePanel } from '../components/StoragePanel'
 import type { Page as AppPage } from '../components/Sidebar'
 import { StatusDot } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -24,6 +26,7 @@ type Filter = 'all' | HistoryEntry['status']
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
+  { id: 'awaiting_approval', label: 'Waiting for approval' },
   { id: 'completed', label: 'Completed' },
   { id: 'failed', label: 'Failed' },
   { id: 'cancelled', label: 'Cancelled' },
@@ -34,6 +37,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 const STATUS: Record<HistoryEntry['status'], { label: string; tone: 'success' | 'accent' | 'danger' | 'warning' | 'neutral' }> = {
   completed: { label: 'Completed', tone: 'success' },
   running: { label: 'Running', tone: 'accent' },
+  awaiting_approval: { label: 'Waiting for approval', tone: 'warning' },
   failed: { label: 'Failed', tone: 'danger' },
   cancelled: { label: 'Cancelled', tone: 'neutral' },
   interrupted: { label: 'Interrupted', tone: 'warning' },
@@ -56,6 +60,8 @@ export function JobsPage({ onNavigate }: { onNavigate: (page: AppPage) => void }
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [openRun, setOpenRun] = useState<{ entry: HistoryEntry; output: JobOutput } | null>(null)
+  /** A job's ideas under review, when it is not the focused live job. */
+  const [reviewJobId, setReviewJobId] = useState<string | null>(null)
   const requestId = useRef(0)
 
   const load = useCallback(async (manual = false) => {
@@ -128,19 +134,47 @@ export function JobsPage({ onNavigate }: { onNavigate: (page: AppPage) => void }
     }
   }
 
-  const back = <BackLink label="All jobs" onClick={() => { focusJob(null); setOpenRun(null) }} />
+  const toList = (): void => { focusJob(null); setOpenRun(null); setReviewJobId(null) }
+  const back = <BackLink label="All jobs" onClick={toList} />
   const errorCallout = error && (
     <Page width="focus" className="pb-0">
       <Callout tone="danger" onDismiss={() => setError(null)}>{error}</Callout>
     </Page>
   )
+  const scrollTop = (): void => { document.getElementById('page-scroll')?.scrollTo({ top: 0 }) }
+  const openReview = (jobId: string): void => { setOpenRun(null); focusJob(null); setReviewJobId(jobId); scrollTop() }
+  const review = (jobId: string, refreshKey?: unknown): React.JSX.Element => (
+    <IdeaReview
+      jobId={jobId}
+      leading={back}
+      refreshKey={refreshKey}
+      onRenderQueued={(id) => { setReviewJobId(null); focusJob(id); scrollTop() }}
+      onDiscarded={() => { toList(); void load() }}
+    />
+  )
+  // Finished jobs with unused ideas offer them from the clips view too.
+  const moreIdeas = (jobId: string): React.ReactNode => {
+    const entry = entries?.find((item) => item.jobId === jobId)
+    if (!entry?.sourceKept || !entry.ideasLeft) return back
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {back}
+        <Button size="sm" icon={<Lightbulb className="h-3.5 w-3.5" />} onClick={() => openReview(jobId)}>
+          Review {entry.ideasLeft} more idea{entry.ideasLeft === 1 ? '' : 's'}
+        </Button>
+      </div>
+    )
+  }
+
+  if (reviewJobId) return review(reviewJobId)
 
   if (focused) {
     if (isJobActive(focused)) {
       return <>{errorCallout}<JobProgress job={focused} leading={back} onCancel={() => { void cancel(focused) }} /></>
     }
+    if (focused.status === 'awaiting_approval') return review(focused.id, focused.revision)
     if (focused.status === 'completed' && focused.output) {
-      return <ClipList output={focused.output} outputDir={focused.outputDir} onNavigate={onNavigate} leading={back} />
+      return <ClipList output={focused.output} outputDir={focused.outputDir} onNavigate={onNavigate} leading={moreIdeas(focused.id)} />
     }
     if (focused.status === 'failed') {
       return <>{errorCallout}<JobFailure job={focused} leading={back} onRetry={() => { void runAgain(focused) }} /></>
@@ -149,7 +183,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (page: AppPage) => void }
   }
 
   if (openRun) {
-    return <ClipList output={openRun.output} outputDir={openRun.entry.outputDir} onNavigate={onNavigate} leading={back} />
+    return <ClipList output={openRun.output} outputDir={openRun.entry.outputDir} onNavigate={onNavigate} leading={moreIdeas(openRun.entry.jobId)} />
   }
 
   return (
@@ -168,16 +202,19 @@ export function JobsPage({ onNavigate }: { onNavigate: (page: AppPage) => void }
       onOpenJob={(job) => { focusJob(job.id); document.getElementById('page-scroll')?.scrollTo({ top: 0 }) }}
       onCancel={(job) => { void cancel(job) }}
       onOpenEntry={(entry) => {
+        if (entry.status === 'awaiting_approval') { openReview(entry.jobId); return }
         // This session's jobs open their live view; older runs load from disk.
         if (useJobStore.getState().jobs[entry.jobId]) focusJob(entry.jobId)
         else void openEntry(entry)
       }}
+      onReview={(entry) => openReview(entry.jobId)}
       onOpenFolder={(dir) => { void openFolder(dir) }}
+      onStorageChanged={() => { void load() }}
     />
   )
 }
 
-function JobsList({ active, entries, filter, query, error, refreshing, onFilter, onQuery, onDismissError, onRefresh, onNew, onOpenJob, onCancel, onOpenEntry, onOpenFolder }: {
+function JobsList({ active, entries, filter, query, error, refreshing, onFilter, onQuery, onDismissError, onRefresh, onNew, onOpenJob, onCancel, onOpenEntry, onReview, onOpenFolder, onStorageChanged }: {
   active: Job[]
   entries: HistoryEntry[] | null
   filter: Filter
@@ -192,12 +229,16 @@ function JobsList({ active, entries, filter, query, error, refreshing, onFilter,
   onOpenJob: (job: Job) => void
   onCancel: (job: Job) => void
   onOpenEntry: (entry: HistoryEntry) => void
+  onReview: (entry: HistoryEntry) => void
   onOpenFolder: (dir: string) => void
+  onStorageChanged: () => void
 }): React.JSX.Element {
   const sessionJobs = useJobStore((s) => s.jobs)
   const liveIds = useMemo(() => new Set(active.map((job) => job.id)), [active])
+  const toReview = useMemo(() => (entries ?? []).filter((entry) => entry.status === 'awaiting_approval' && !liveIds.has(entry.jobId)), [entries, liveIds])
   // Queued and running jobs show above; their disk records would duplicate them.
-  const previous = useMemo(() => (entries ?? []).filter((entry) => !liveIds.has(entry.jobId) && entry.status !== 'running'), [entries, liveIds])
+  const previous = useMemo(() => (entries ?? []).filter((entry) =>
+    !liveIds.has(entry.jobId) && entry.status !== 'running' && entry.status !== 'awaiting_approval'), [entries, liveIds])
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return previous.filter((entry) =>
@@ -210,7 +251,7 @@ function JobsList({ active, entries, filter, query, error, refreshing, onFilter,
   }, { all: previous.length })
   const running = active.filter((job) => job.status !== 'queued').length
   const queued = active.length - running
-  const nothingYet = entries !== null && previous.length === 0 && active.length === 0
+  const nothingYet = entries !== null && previous.length === 0 && active.length === 0 && toReview.length === 0
 
   return (
     <Page width="default">
@@ -236,6 +277,35 @@ function JobsList({ active, entries, filter, query, error, refreshing, onFilter,
       <div className="mt-4 space-y-3">
         {error && <Callout tone="danger" onDismiss={onDismissError}>{error}</Callout>}
 
+        {toReview.length > 0 && (
+          <Panel padded={false} className="overflow-hidden">
+            <section aria-label="Needs your review">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] py-2 pl-4 pr-3">
+                <SectionTitle label="Needs your review" count={toReview.length} />
+                <p className="text-2xs text-ink-subtle">Ideas are ready. Approve the good ones, then render.</p>
+              </div>
+              <ul className="divide-y divide-white/[0.05]">
+                {toReview.map((entry) => (
+                  <li key={entry.jobId} className="flex items-center gap-3 py-2 pl-4 pr-2">
+                    <StatusDot tone="warning" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-ink">{entry.videoTitle}</span>
+                      <span className="block truncate text-xs text-ink-subtle">
+                        {entry.ideasLeft != null ? `${entry.ideasLeft} idea${entry.ideasLeft === 1 ? '' : 's'} to review` : 'Ideas to review'}
+                        {entry.errorMessage && <span className="text-warning"> · Last render failed</span>}
+                        {!entry.date.startsWith('1970-') && ` · ${formatRelativeDate(entry.date)}`}
+                      </span>
+                    </span>
+                    <Button size="sm" variant="primary" icon={<Lightbulb className="h-3.5 w-3.5" />} onClick={() => onReview(entry)}>
+                      Review ideas
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </Panel>
+        )}
+
         {active.length > 0 && (
           <Panel padded={false} className="overflow-hidden">
             <section aria-label="Active jobs">
@@ -259,6 +329,8 @@ function JobsList({ active, entries, filter, query, error, refreshing, onFilter,
             </section>
           </Panel>
         )}
+
+        <StoragePanel refreshKey={entries} onOpenFolder={onOpenFolder} onChanged={onStorageChanged} />
 
         {nothingYet ? (
           <EmptyState
@@ -322,7 +394,7 @@ function JobsList({ active, entries, filter, query, error, refreshing, onFilter,
               ) : (
                 <ul className="divide-y divide-white/[0.05]">
                   {visible.map((entry) => (
-                    <PreviousJobRow key={entry.jobId} entry={entry} hasDetails={Boolean(sessionJobs[entry.jobId])} onOpen={() => onOpenEntry(entry)} onOpenFolder={() => onOpenFolder(entry.outputDir)} />
+                    <PreviousJobRow key={entry.jobId} entry={entry} hasDetails={Boolean(sessionJobs[entry.jobId])} onOpen={() => onOpenEntry(entry)} onReview={() => onReview(entry)} onOpenFolder={() => onOpenFolder(entry.outputDir)} />
                   ))}
                 </ul>
               )}
@@ -400,6 +472,7 @@ function ActiveJobRow({ job, position, onOpen, onCancel }: { job: Job; position:
 const STATUS_DOT: Record<HistoryEntry['status'], 'success' | 'accent' | 'danger' | 'warning' | 'idle'> = {
   completed: 'success',
   running: 'accent',
+  awaiting_approval: 'warning',
   failed: 'danger',
   cancelled: 'idle',
   interrupted: 'warning',
@@ -409,6 +482,7 @@ const STATUS_DOT: Record<HistoryEntry['status'], 'success' | 'accent' | 'danger'
 const STATUS_TEXT: Record<HistoryEntry['status'], string> = {
   completed: 'text-success',
   running: 'text-accent-hover',
+  awaiting_approval: 'text-warning',
   failed: 'text-danger',
   cancelled: 'text-ink-subtle',
   interrupted: 'text-warning',
@@ -416,9 +490,10 @@ const STATUS_TEXT: Record<HistoryEntry['status'], string> = {
 }
 
 /** One line per run: status, title, then clips, run time, cost and date in aligned columns. */
-function PreviousJobRow({ entry, hasDetails, onOpen, onOpenFolder }: { entry: HistoryEntry; hasDetails: boolean; onOpen: () => void; onOpenFolder: () => void }): React.JSX.Element {
+function PreviousJobRow({ entry, hasDetails, onOpen, onReview, onOpenFolder }: { entry: HistoryEntry; hasDetails: boolean; onOpen: () => void; onReview: () => void; onOpenFolder: () => void }): React.JSX.Element {
   const status = STATUS[entry.status]
   const completed = entry.status === 'completed'
+  const moreIdeas = completed && entry.sourceKept && entry.ideasLeft ? entry.ideasLeft : 0
   // Failed and cancelled jobs from this session keep their options, so they can run again.
   const openable = completed || hasDetails
   const dated = !entry.date.startsWith('1970-')
@@ -453,6 +528,11 @@ function PreviousJobRow({ entry, hasDetails, onOpen, onOpenFolder }: { entry: Hi
         <button onClick={onOpen} className={cellClass} title={completed ? 'View clips' : 'Details'}>{cells}</button>
       ) : (
         <div className={cellClass}>{cells}</div>
+      )}
+      {moreIdeas > 0 && (
+        <Button size="sm" variant="ghost" icon={<Lightbulb className="h-3.5 w-3.5" />} onClick={onReview} title="Review ideas that are not rendered yet">
+          {moreIdeas} more idea{moreIdeas === 1 ? '' : 's'}
+        </Button>
       )}
       <Button
         size="sm"

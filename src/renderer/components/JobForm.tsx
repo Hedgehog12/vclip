@@ -40,7 +40,7 @@ export const WIZARD_STEPS: { id: WizardStep; label: string; title: string; descr
   { id: 'format', label: 'Format', title: 'Format, framing and speed', description: 'Choose the look and pace of every clip in this job.' },
   { id: 'clips', label: 'Clips', title: 'Clip length and count', description: 'Pick one or more lengths, or leave them all off for any length.' },
   { id: 'captions', label: 'Captions', title: 'Captions', description: 'Word-by-word captions burned into each clip. Silent videos are clipped without them.' },
-  { id: 'review', label: 'Review', title: 'Review and generate', description: 'Check the run, then generate. You can queue another video right after.' }
+  { id: 'review', label: 'Review', title: 'Review and generate', description: 'Check the run, then generate. The AI finds ideas first; you approve them under Jobs before anything renders.' }
 ]
 
 export function parseTrimRange(enabled: boolean, startText: string, endText: string): {
@@ -564,7 +564,7 @@ function StartedPanel({ className, onViewJob }: { className?: string; onViewJob?
       <p className="mt-1 max-w-md text-xs text-ink-subtle">
         {started.queued
           ? `Up to ${MAX_PARALLEL_JOBS} jobs run at once. This one starts as soon as a slot frees up.`
-          : 'It keeps running while you queue more videos or use the rest of VlasiichukClip.'}
+          : 'When the AI has found the ideas, the job waits under Jobs for your approval. Nothing renders before that.'}
       </p>
       <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
         <Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={startAnother}>

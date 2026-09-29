@@ -42,9 +42,12 @@ export function parseTimecode(input: string): number | null {
   return Number.isFinite(seconds) ? seconds : NaN
 }
 
-/** URL for a file on disk, served by the main process's local-file:// protocol. */
+/**
+ * URL for a file on disk, served by the main process's local-file:// protocol.
+ * The fixed "media" host keeps it a standard URL, which video seeking needs.
+ */
 export function localFileUrl(filePath: string): string {
-  return `local-file://${encodeURIComponent(filePath)}`
+  return `local-file://media/${encodeURIComponent(filePath)}`
 }
 
 /** Readable message from an IPC rejection (drops Electron's "Error invoking remote method" prefix). */
@@ -52,6 +55,16 @@ export function errorMessage(err: unknown, fallback = 'Something went wrong'): s
   const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
   const cleaned = raw.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '').trim()
   return cleaned || fallback
+}
+
+/** Disk size in the units people read: 850 KB, 12.4 MB, 3.2 GB. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB'
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
+  return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
 }
 
 export function formatUsd(amount: number): string {

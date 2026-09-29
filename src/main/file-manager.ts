@@ -8,19 +8,35 @@ import { open, readdir } from 'fs/promises'
 import { isAbsolute, join, relative, sep } from 'path'
 import { resolveBinary } from './tools'
 import { parseJobOutput, type JobOutput } from '../shared/job-output'
-import { readRunRecord } from './run-history'
+import { readRunRecord, type RunRecord } from './run-history'
+import { ideasLeft, readSavedReview, reviewDecisions } from './review-store'
+import { sameFile } from './file-identity'
 
 export interface JobHistoryEntry {
   jobId: string
   date: string
   videoTitle: string
   clipCount: number
-  status: 'completed' | 'failed' | 'cancelled' | 'running' | 'interrupted' | 'incomplete'
+  status: 'completed' | 'failed' | 'cancelled' | 'running' | 'interrupted' | 'incomplete' | 'awaiting_approval'
   outputDir: string
   totalCostUsd: number | null
   finishedAt: string | null
   durationMs: number | null
   errorMessage: string | null
+  /** Reviewed ideas that are neither rendered nor rejected; null for runs without a review. */
+  ideasLeft: number | null
+  /** The downloaded stream is still kept, so more ideas can be rendered. */
+  sourceKept: boolean
+}
+
+function reviewSummary(baseDir: string, jobId: string, record: RunRecord | null): Pick<JobHistoryEntry, 'ideasLeft' | 'sourceKept'> & { title: string | null } {
+  const review = readSavedReview(baseDir, jobId)
+  if (!review) return { ideasLeft: null, sourceKept: false, title: null }
+  return {
+    ideasLeft: ideasLeft(review, reviewDecisions(record, review.ideas)),
+    sourceKept: review.sourcePath !== null,
+    title: review.videoTitle
+  }
 }
 
 const MAX_JOB_OUTPUT_BYTES = 20 * 1024 * 1024
@@ -35,14 +51,12 @@ async function readJobOutput(outputPath: string, libraryDir: string): Promise<{ 
     // Windows has no O_NOFOLLOW. Check the name again after opening, then
     // compare it with the file descriptor so a swapped link is not accepted.
     const currentEntry = lstatSync(outputPath)
-    if (!currentEntry.isFile() || currentEntry.isSymbolicLink() ||
-        file.dev !== currentEntry.dev || file.ino !== currentEntry.ino) return null
+    if (!currentEntry.isFile() || currentEntry.isSymbolicLink() || !sameFile(file, currentEntry)) return null
     const canonical = realpathSync(outputPath)
     const library = realpathSync(libraryDir)
     const rel = relative(library, canonical)
     const current = statSync(canonical)
-    if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`) ||
-        file.dev !== current.dev || file.ino !== current.ino) return null
+    if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`) || !sameFile(file, current)) return null
     const data = parseJobOutput(JSON.parse(await handle.readFile('utf-8')))
     return data ? { data, modified: file.mtime } : null
   } finally {
@@ -75,16 +89,23 @@ export async function getJobHistory(baseDir: string, activeJobIds: ReadonlySet<s
         const { data } = result
         const costs = data.metrics?.api_costs
         const costVal = costs && typeof costs === 'object' ? (costs as Record<string, unknown>).total_estimated_cost_usd : null
+        const { ideasLeft, sourceKept } = reviewSummary(baseDir, dir.name, record)
+        const review = { ideasLeft, sourceKept }
+        // A later render round of a finished job shows as running while it runs.
+        const renderingMore = record?.status === 'running' && record.resumeStatus && activeJobIds.has(dir.name)
         entries.push({
           jobId: dir.name,
           date: record?.startedAt ?? result.modified.toISOString(),
           videoTitle: data.source_video_title,
           clipCount: data.clips.length,
-          status: 'completed',
+          ...review,
+          status: renderingMore ? 'running' : 'completed',
           outputDir: join(baseDir, dir.name),
           totalCostUsd: typeof costVal === 'number' ? costVal : null,
           finishedAt: record?.finishedAt ?? result.modified.toISOString(),
-          durationMs: durationMs ?? (typeof data.processing_time_seconds === 'number' ? Math.round(data.processing_time_seconds * 1000) : null),
+          // A reviewed run's wall-clock time includes waiting for approval; show processing time.
+          durationMs: (ideasLeft === null ? durationMs : null) ??
+            (typeof data.processing_time_seconds === 'number' ? Math.round(data.processing_time_seconds * 1000) : null),
           errorMessage: null
         })
       } catch (error) {
@@ -96,15 +117,17 @@ export async function getJobHistory(baseDir: string, activeJobIds: ReadonlySet<s
             try {
               const stat = lstatSync(runDir)
               if (stat.isDirectory() && !stat.isSymbolicLink()) {
+                // A render round interrupted by a crash returns to review, like a cancelled one.
                 const status = record?.status === 'running'
-                  ? (activeJobIds.has(dir.name) ? 'running' : 'interrupted')
-                  : record?.status === 'failed' || record?.status === 'cancelled'
+                  ? (activeJobIds.has(dir.name) ? 'running' : record.resumeStatus ?? 'interrupted')
+                  : record?.status === 'failed' || record?.status === 'cancelled' || record?.status === 'awaiting_approval'
                     ? record.status : 'incomplete'
+                const { title, ...review } = reviewSummary(baseDir, dir.name, record)
                 entries.push({ jobId: dir.name, date: record?.startedAt ?? stat.mtime.toISOString(),
-                  videoTitle: record?.sourceLabel ?? 'Unfinished run', clipCount: 0,
+                  videoTitle: title ?? record?.sourceLabel ?? 'Unfinished run', clipCount: 0,
                   status, outputDir: runDir, totalCostUsd: null,
                   finishedAt: record?.finishedAt ?? null, durationMs,
-                  errorMessage: record?.errorMessage ?? null })
+                  errorMessage: record?.errorMessage ?? null, ...review })
               }
             } catch { /* The run directory was removed during the scan. */ }
           }
@@ -113,7 +136,7 @@ export async function getJobHistory(baseDir: string, activeJobIds: ReadonlySet<s
         entries.push({ jobId: dir.name, date: record?.startedAt ?? new Date(0).toISOString(), videoTitle: record?.sourceLabel ?? 'Unreadable run', clipCount: 0,
           status: 'failed', outputDir: join(baseDir, dir.name), totalCostUsd: null,
           finishedAt: record?.finishedAt ?? null, durationMs,
-          errorMessage: record?.errorMessage ?? 'The saved result could not be read.' })
+          errorMessage: record?.errorMessage ?? 'The saved result could not be read.', ideasLeft: null, sourceKept: false })
       }
     }
   } catch {

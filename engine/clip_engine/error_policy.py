@@ -9,6 +9,14 @@ TWITCH_ERRORS = {
     "twitch_unavailable": "Twitch VOD unavailable",
 }
 
+REVIEW_ERRORS = {
+    "The saved ideas for this job are missing",
+    "The source video for this job is no longer available",
+    "An approved idea is not part of this job",
+    "An approved idea has already been rendered",
+    "Idea review is only available in local mode",
+}
+
 DISK_FULL_ERRNOS = {errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)}
 DISK_FULL_MARKERS = ("no space left on device", "disk quota exceeded")
 
@@ -69,6 +77,8 @@ def safe_processing_error(error: Exception) -> str:
         return "Video render failed"
     if isinstance(error, RuntimeError) and str(error).startswith("No clip-worthy moments found ("):
         return "No clip-worthy moments found"
+    if type(error).__name__ == "ReviewStateError" and str(error) in REVIEW_ERRORS:
+        return str(error)
     return "Processing failed"
 
 
@@ -94,6 +104,8 @@ def safe_failure_code(error: Exception) -> str:
         return f"download.{reason}" if reason in TWITCH_ERRORS else "download.failed"
     if type(error).__name__ == "RenderingError":
         return "render.failed"
+    if type(error).__name__ == "ReviewStateError":
+        return "review.unavailable"
     return "pipeline.failed"
 
 
@@ -117,6 +129,6 @@ def safe_job_error_text(error: str | None) -> str | None:
         "Transcription audio chunk exceeded the size limit",
         "Transcription response lacked word timestamps",
         "Video render failed",
-    }:
+    } or error in REVIEW_ERRORS:
         return error
     return "Processing failed"

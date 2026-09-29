@@ -29,6 +29,7 @@ export function validateJobConfig(value: unknown): ClipJobConfig {
   if (v.endTimeSeconds !== null && v.endTimeSeconds <= (v.startTimeSeconds ?? 0)) throw new Error('Trim end must follow trim start')
   if (v.bannerPlatform !== null && (typeof v.bannerPlatform !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(v.bannerPlatform))) throw new Error('Invalid banner platform')
   if (v.bannerChannelUrl !== null && (!isWebUrl(v.bannerChannelUrl) || v.bannerChannelUrl.length > 8192)) throw new Error('Invalid banner URL')
-  // Capabilities are looked up in main after validation, never accepted from the renderer.
-  return { ...v, videoUrl: normalizeVideoSource(v.videoUrl), videoSpeed: v.videoSpeed ?? 1, plannerCapabilities: undefined }
+  // Capabilities are looked up in main after validation, never accepted from the
+  // renderer; the render phase is only started by main from a reviewed job.
+  return { ...v, videoUrl: normalizeVideoSource(v.videoUrl), videoSpeed: v.videoSpeed ?? 1, plannerCapabilities: undefined, phase: undefined, approvedIdeaIds: undefined }
 }

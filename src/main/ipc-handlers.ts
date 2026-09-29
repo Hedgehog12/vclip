@@ -10,8 +10,10 @@ import {
   preflightCheck,
   type ClipJobConfig
 } from './pipeline-runner'
-import { createRunRecord, finishRunRecord } from './run-history'
-import { cancelTrackedJob, dismissJob, enqueueJob, initJobManager, listJobs, liveJobIds } from './job-manager'
+import { beginRenderRound, createRunRecord, discardRunRecord, finishRunRecord, readRunRecord, saveDecisions } from './run-history'
+import { baseRequest, cancelTrackedJob, discardTrackedJob, dismissJob, enqueueJob, enqueueRenderRound, initJobManager, isJobBusy, listJobs, liveJobIds } from './job-manager'
+import { buildJobReview, deleteKeptSource, readSavedReview, storageUsage, userSourcePath } from './review-store'
+import { IDEA_ID_PATTERN, MAX_IDEAS_PER_RENDER, type IdeaDecision } from '../shared/jobs'
 import { logger, getLogFilePath } from './logger'
 import { assertAbsolutePath, assertMediaPath, assertTrustedSender, authorizeMedia, isTrustedExternalUrl, isWebUrl, isWithinDirectory, openAuthorizedMedia } from './security'
 import { assertPublicWebUrl } from './network-policy'
@@ -57,6 +59,35 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     assertTrustedSender(event, getMainWindow())
     return listener(event, ...args)
   })
+
+  /** The same readiness checks before analyzing a video and before rendering its ideas. */
+  async function engineNotReady(settings: ReturnType<typeof loadSettings>, includeCaptions: boolean): Promise<string | null> {
+    if (!settings.openrouterApiKey) {
+      logger.warn('job.start.missingKey', { key: 'OPENROUTER_API_KEY' })
+      return 'OpenRouter API key is required for AI clip planning. Go to Settings to add it.'
+    }
+    const enginePath = getEnginePath()
+    const bridgePath = getBridgeRunnerPath()
+    const pythonPath = resolvePythonPath(enginePath, settings.pythonPath)
+    const preflight = preflightCheck({ pythonPath, bridgePath, enginePath })
+    if (!preflight.ok) {
+      logger.error('job.start.preflight.failed', { error: preflight.error, hint: preflight.hint, pythonPath, bridgePath, enginePath })
+      return preflight.hint ? `${preflight.error}\n\n${preflight.hint}` : preflight.error!
+    }
+    const engineKey = `${pythonPath}\0${enginePath}`
+    if (!lastEngineCheck || lastEngineCheck.key !== engineKey || Date.now() - lastEngineCheck.at > ENGINE_CHECK_TTL_MS) {
+      const pythonValidation = await validatePython(pythonPath, enginePath)
+      if (!pythonValidation.ok) {
+        lastEngineCheck = null
+        return 'The clipping engine is incomplete or incompatible. Open Settings → System check, then repair the VlasiichukClip installation before starting.'
+      }
+      lastEngineCheck = { key: engineKey, at: Date.now() }
+    }
+    if (includeCaptions && !(await supportsCaptionFilter())) {
+      return 'FFmpeg cannot render captions because its ass filter is missing. Install an FFmpeg build with libass, or turn captions off.'
+    }
+    return null
+  }
   handle('settings:load', () => {
     return publicSettings(loadSettings())
   })
@@ -159,49 +190,16 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
       if (config.bannerChannelUrl) await assertPublicWebUrl(config.bannerChannelUrl)
     } catch (error) { return { error: error instanceof Error ? error.message : 'Invalid job options' } }
     const settings = loadSettings()
-
-    if (!settings.openrouterApiKey) {
-      logger.warn('job.start.missingKey', { key: 'OPENROUTER_API_KEY' })
-      return { error: 'OpenRouter API key is required for AI clip planning. Go to Settings to add it.' }
-    }
-
-    const enginePath = getEnginePath()
-    const bridgePath = getBridgeRunnerPath()
-    const pythonPath = resolvePythonPath(enginePath, settings.pythonPath)
-
-    const preflight = preflightCheck({ pythonPath, bridgePath, enginePath })
-    if (!preflight.ok) {
-      const message = preflight.hint
-        ? `${preflight.error}\n\n${preflight.hint}`
-        : preflight.error!
-      logger.error('job.start.preflight.failed', {
-        error: preflight.error,
-        hint: preflight.hint,
-        pythonPath,
-        bridgePath,
-        enginePath
-      })
-      return { error: message }
-    }
-    const engineKey = `${pythonPath}\0${enginePath}`
-    if (!lastEngineCheck || lastEngineCheck.key !== engineKey || Date.now() - lastEngineCheck.at > ENGINE_CHECK_TTL_MS) {
-      const pythonValidation = await validatePython(pythonPath, enginePath)
-      if (!pythonValidation.ok) {
-        lastEngineCheck = null
-        return { error: 'The clipping engine is incomplete or incompatible. Open Settings → System check, then repair the VlasiichukClip installation before starting.' }
-      }
-      lastEngineCheck = { key: engineKey, at: Date.now() }
-    }
-    if (config.includeCaptions && !(await supportsCaptionFilter())) {
-      return { error: 'FFmpeg cannot render captions because its ass filter is missing. Install an FFmpeg build with libass, or turn captions off.' }
-    }
+    const notReady = await engineNotReady(settings, config.includeCaptions)
+    if (notReady) return { error: notReady }
 
     ensureOutputDir(settings.outputDirectory)
 
     const jobId = randomUUID()
     logger.info('job.start.request', { jobId, sourceType: isWebUrl(config.videoUrl) ? 'remote' : 'local', aspectRatio: config.aspectRatio })
     try {
-      createRunRecord(settings.outputDirectory, jobId, config.videoUrl)
+      // The validated request is kept so the job's ideas can be rendered after a restart.
+      createRunRecord(settings.outputDirectory, jobId, config.videoUrl, baseRequest(config))
     } catch {
       try { finishRunRecord(settings.outputDirectory, jobId, 'failed', 'Could not start this run.') } catch { /* Output folder may be unavailable. */ }
       return { error: 'Could not create the clipping run. Check the output folder and retry.' }
@@ -219,6 +217,97 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
 
   handle('jobs:list', () => listJobs())
   handle('jobs:dismiss', (_event, jobId: unknown) => typeof jobId === 'string' && dismissJob(jobId))
+
+  // Idea review: approve ideas before anything renders.
+  const reviewJobId = (value: unknown): string => {
+    if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+      throw new Error('Invalid job')
+    }
+    return value
+  }
+
+  handle('review:get', (_event, value: unknown) => {
+    const jobId = reviewJobId(value)
+    const review = buildJobReview(loadSettings().outputDirectory, jobId, isJobBusy(jobId))
+    if (review?.sourcePath && !review.sourceDownloaded) {
+      // The user's own file, as validated when the job started; allow the preview to play it.
+      try { authorizeMedia(review.sourcePath) } catch { review.sourcePath = null }
+    }
+    return review
+  })
+
+  handle('review:decide', (_event, value: unknown, decisions: unknown) => {
+    const jobId = reviewJobId(value)
+    if (!decisions || typeof decisions !== 'object' || Array.isArray(decisions)) throw new Error('Invalid decisions')
+    const clean = Object.fromEntries(Object.entries(decisions as Record<string, unknown>)
+      .filter(([id, decision]) => IDEA_ID_PATTERN.test(id) && (decision === 'approved' || decision === 'rejected'))) as Record<string, IdeaDecision>
+    return saveDecisions(loadSettings().outputDirectory, jobId, clean)
+  })
+
+  handle('review:render', async (_event, value: unknown, ideaIds: unknown) => {
+    const jobId = reviewJobId(value)
+    if (!Array.isArray(ideaIds) || ideaIds.length === 0 || ideaIds.length > MAX_IDEAS_PER_RENDER ||
+        ideaIds.some((id) => typeof id !== 'string' || !IDEA_ID_PATTERN.test(id)) || new Set(ideaIds).size !== ideaIds.length) {
+      return { error: 'Approve at least one idea to render.' }
+    }
+    if (isJobBusy(jobId)) return { error: 'This job is already rendering.' }
+    const settings = loadSettings()
+    const baseDir = settings.outputDirectory
+    const review = readSavedReview(baseDir, jobId)
+    const record = readRunRecord(baseDir, jobId)
+    if (!review || !record?.request) return { error: 'The ideas for this job could not be read.' }
+    const byId = new Map(review.ideas.map((idea) => [idea.id, idea]))
+    if (ideaIds.some((id) => !byId.has(id as string))) return { error: 'An approved idea is not part of this job.' }
+    if (ideaIds.some((id) => byId.get(id as string)!.rendered)) return { error: 'One of these ideas has already been rendered.' }
+    if (!(review.sourceDownloaded ? review.sourcePath : userSourcePath(record))) {
+      return { error: 'The video for this job was deleted or moved, so its ideas can no longer be rendered.' }
+    }
+    let config: ClipJobConfig
+    try {
+      config = validateJobConfig(record.request)
+      if (config.clippingMode === 'advanced') {
+        config.plannerCapabilities = await resolveAdvancedModels(config.plannerModel!, config.transcriptionModel!)
+      }
+    } catch { return { error: 'The settings saved with this job are no longer valid. Start a new job for this video.' } }
+    const notReady = await engineNotReady(settings, config.includeCaptions)
+    if (notReady) return { error: notReady }
+    const resume = beginRenderRound(baseDir, jobId)
+    if (!resume) return { error: 'This job cannot render right now.' }
+    const decisions = { ...(record.decisions ?? {}) }
+    for (const id of ideaIds as string[]) decisions[id] = 'approved'
+    saveDecisions(baseDir, jobId, decisions)
+    logger.info('review.render', { jobId, ideas: ideaIds.length })
+    enqueueRenderRound(jobId, { ...config, phase: 'render', approvedIdeaIds: ideaIds as string[] }, baseDir, resume)
+    return { ok: true }
+  })
+
+  handle('review:discard', (_event, value: unknown) => {
+    const jobId = reviewJobId(value)
+    if (isJobBusy(jobId)) return { error: 'Wait until this job finishes rendering.' }
+    const baseDir = loadSettings().outputDirectory
+    try { deleteKeptSource(baseDir, jobId) } catch { return { error: 'The downloaded video could not be deleted.' } }
+    discardRunRecord(baseDir, jobId)
+    discardTrackedJob(jobId)
+    logger.info('review.discard', { jobId })
+    return { ok: true }
+  })
+
+  handle('storage:usage', async () => {
+    const baseDir = loadSettings().outputDirectory
+    const history = await getJobHistory(baseDir, liveJobIds()).catch(() => [])
+    const titles = new Map(history.map((entry) => [entry.jobId, { title: entry.videoTitle, date: entry.date, status: entry.status }]))
+    return storageUsage(baseDir, isJobBusy, titles)
+  })
+
+  handle('storage:deleteSource', (_event, value: unknown) => {
+    const jobId = reviewJobId(value)
+    if (isJobBusy(jobId)) return { error: 'Wait until this job finishes rendering.' }
+    try {
+      const deleted = deleteKeptSource(loadSettings().outputDirectory, jobId)
+      logger.info('storage.deleteSource', { jobId, deleted })
+      return { ok: true, deleted }
+    } catch { return { error: 'The downloaded video could not be deleted. Close any app that is playing it and retry.' } }
+  })
 
   handle('diagnostics:getLogPath', () => {
     return getLogFilePath()

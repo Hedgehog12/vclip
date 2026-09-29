@@ -53,6 +53,8 @@ class ClipArtifact:
     description: Optional[str] = None
     chapters: Optional[list[dict]] = None
     subtitle_url: Optional[str] = None
+    # The reviewed idea this clip was rendered from.
+    idea_id: Optional[str] = None
 
 
 @dataclass

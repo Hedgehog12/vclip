@@ -10,7 +10,7 @@ import type {
   ZernioSyncResult
 } from '../shared/zernio'
 import type { ClipMediaInfo, PostClipRequest, PostClipResult, PostProgress, PostRecord, PostsRefreshResult, TikTokCreatorInfo, TikTokLegalLink } from '../shared/zernio-posts'
-import type { ClipJobRequest, JobSnapshot } from '../shared/jobs'
+import type { ClipJobRequest, IdeaDecision, JobReview, JobSnapshot, StorageUsage } from '../shared/jobs'
 import type { Automation, AutomationUpdate, AutomationTikTokReview, AutomationTikTokReviewUpdate } from '../shared/automations'
 import type { OpenRouterCatalog } from '../shared/openrouter-models'
 
@@ -22,19 +22,23 @@ export interface ClipSettings {
   customVocabulary: string
 }
 
-export type { ClipJobRequest, JobSnapshot } from '../shared/jobs'
+export type { ClipJobRequest, IdeaDecision, JobReview, JobSnapshot, ReviewIdea, RunStorage, StorageUsage } from '../shared/jobs'
 
 export interface HistoryEntry {
   jobId: string
   date: string
   videoTitle: string
   clipCount: number
-  status: 'completed' | 'failed' | 'cancelled' | 'running' | 'interrupted' | 'incomplete'
+  status: 'completed' | 'failed' | 'cancelled' | 'running' | 'interrupted' | 'incomplete' | 'awaiting_approval'
   outputDir: string
   totalCostUsd: number | null
   finishedAt: string | null
   durationMs: number | null
   errorMessage: string | null
+  /** Reviewed ideas that are neither rendered nor rejected; null for runs without a review. */
+  ideasLeft: number | null
+  /** The downloaded stream is still kept, so more ideas can be rendered. */
+  sourceKept: boolean
 }
 
 export interface ToolStatus {
@@ -125,6 +129,18 @@ export interface VlasiichukClipAPI {
   history: {
     list: () => Promise<HistoryEntry[]>
     getJob: (outputDir: string) => Promise<Record<string, unknown> | null>
+  }
+  /** Ideas found by the AI, waiting for approve/reject before anything renders. */
+  review: {
+    get: (jobId: string) => Promise<JobReview | null>
+    decide: (jobId: string, decisions: Record<string, IdeaDecision>) => Promise<boolean>
+    render: (jobId: string, ideaIds: string[]) => Promise<{ ok?: true; error?: string }>
+    discard: (jobId: string) => Promise<{ ok?: true; error?: string }>
+  }
+  /** Disk space used by each job, and deleting a job's downloaded stream. */
+  storage: {
+    usage: () => Promise<StorageUsage>
+    deleteSource: (jobId: string) => Promise<{ ok?: true; deleted?: boolean; error?: string }>
   }
   thumbnails: {
     generate: (videoPath: string, seekSeconds?: number) => Promise<string | null>
@@ -223,6 +239,16 @@ const api: VlasiichukClipAPI = {
   history: {
     list: () => ipcRenderer.invoke('history:list'),
     getJob: (outputDir) => ipcRenderer.invoke('history:getJob', outputDir)
+  },
+  review: {
+    get: (jobId) => ipcRenderer.invoke('review:get', jobId),
+    decide: (jobId, decisions) => ipcRenderer.invoke('review:decide', jobId, decisions),
+    render: (jobId, ideaIds) => ipcRenderer.invoke('review:render', jobId, ideaIds),
+    discard: (jobId) => ipcRenderer.invoke('review:discard', jobId)
+  },
+  storage: {
+    usage: () => ipcRenderer.invoke('storage:usage'),
+    deleteSource: (jobId) => ipcRenderer.invoke('storage:deleteSource', jobId)
   },
   thumbnails: {
     generate: (videoPath, seekSeconds) => ipcRenderer.invoke('thumbnails:generate', videoPath, seekSeconds)

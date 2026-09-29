@@ -32,7 +32,8 @@ function buildApp(appDir = process.env.VLASIICHUKCLIP_E2E_APP_DIR || path.join(o
   fs.mkdirSync(appDir, { recursive: true })
   if (!skipBuild || !fs.existsSync(path.join(appDir, 'out/main/index.js'))) {
     const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-    execFileSync(npx, ['electron-vite', 'build', '--outDir', path.join(appDir, 'out')], { cwd: ROOT, stdio: 'inherit' })
+    // Node refuses to run .cmd files without a shell on Windows.
+    execFileSync(npx, ['electron-vite', 'build', '--outDir', JSON.stringify(path.join(appDir, 'out'))], { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' })
   }
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
   fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: pkg.name, productName: pkg.productName, version: pkg.version, main: 'out/main/index.js' }, null, 2))

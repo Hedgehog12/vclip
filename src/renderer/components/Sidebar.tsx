@@ -1,7 +1,7 @@
 import { ChevronRight, Film, Layers, PanelLeftClose, PanelLeftOpen, Send, Settings, UsersRound, WandSparkles, Workflow, type LucideIcon } from 'lucide-react'
 import { cn, MOD_KEY, sourceLabel } from '../lib/utils'
 import { useIsWide, useSidebarExpanded, useSidebarStore } from '../store/use-sidebar-store'
-import { useActiveJobs } from '../store/use-job-store'
+import { useActiveJobs, useJobStore } from '../store/use-job-store'
 import { useSetupState } from '../store/use-settings-store'
 import { APP_VERSION } from '../config/brand'
 import { VlasiichukClipLogo } from './brand/VlasiichukClipLogo'
@@ -137,13 +137,17 @@ function NavButton({ item, expanded, active, onNavigate }: {
 }): React.JSX.Element {
   const Icon = item.icon
   const liveJobs = useActiveJobs().length
-  const badge = item.id === 'jobs' && liveJobs > 0 ? liveJobs : null
+  const reviews = useJobStore((s) => Object.values(s.jobs).filter((job) => job.status === 'awaiting_approval').length)
+  const isJobs = item.id === 'jobs'
+  const badge = isJobs && liveJobs > 0 ? liveJobs : null
+  const reviewBadge = isJobs && !badge && reviews > 0 ? reviews : null
+  const note = badge ? `${badge} active` : reviewBadge ? `${reviewBadge} waiting for approval` : null
   return (
     <button
       onClick={() => onNavigate(item.id)}
       aria-current={active ? 'page' : undefined}
-      aria-label={badge ? `${item.label}, ${badge} active` : item.label}
-      title={expanded ? undefined : badge ? `${item.label} · ${badge} active` : item.label}
+      aria-label={note ? `${item.label}, ${note}` : item.label}
+      title={expanded ? undefined : note ? `${item.label} · ${note}` : item.label}
       className={cn(
         'group relative flex w-full items-center gap-2.5 text-sm transition-[background,color,box-shadow] duration-200 ease-out',
         expanded ? 'h-8 justify-start rounded-full px-3' : 'h-9 justify-center rounded-xl',
@@ -159,14 +163,17 @@ function NavButton({ item, expanded, active, onNavigate }: {
         )}
         strokeWidth={active ? 2.2 : 1.9}
       />
-      {!expanded && badge && (
-        <span aria-hidden className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_0_2px_rgb(var(--canvas))]" />
+      {!expanded && (badge || reviewBadge) && (
+        <span aria-hidden className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full shadow-[0_0_0_2px_rgb(var(--canvas))]', badge ? 'bg-accent' : 'bg-warning')} />
       )}
       {expanded && (
         <>
           <span className="flex-1 truncate text-left">{item.label}</span>
           {badge && (
             <span aria-hidden className="rounded-full bg-accent/20 px-1.5 font-mono text-2xs tabular text-accent-hover group-hover:hidden">{badge}</span>
+          )}
+          {reviewBadge && (
+            <span aria-hidden className="rounded-full bg-warning/15 px-1.5 font-mono text-2xs tabular text-warning group-hover:hidden">{reviewBadge}</span>
           )}
           <kbd className="font-sans text-2xs text-ink-faint opacity-0 transition-opacity group-hover:opacity-100">
             {MOD_KEY}

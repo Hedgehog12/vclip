@@ -56,7 +56,8 @@ function newer(current: Job | undefined, next: Job): boolean {
 }
 
 function bounded(jobs: Record<string, Job>, focusedJobId: string | null): Pick<JobState, 'jobs' | 'focusedJobId'> {
-  const finished = Object.values(jobs).filter((job) => !isActiveJobStatus(job.status))
+  // Jobs waiting for approval stay until the user decides.
+  const finished = Object.values(jobs).filter((job) => !isActiveJobStatus(job.status) && job.status !== 'awaiting_approval')
     .sort((a, b) => (b.finishedAt ?? b.queuedAt).localeCompare(a.finishedAt ?? a.queuedAt))
   for (const job of finished.slice(MAX_FINISHED_JOBS)) delete jobs[job.id]
   return { jobs, focusedJobId: focusedJobId && jobs[focusedJobId] ? focusedJobId : null }

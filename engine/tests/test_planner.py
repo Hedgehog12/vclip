@@ -260,6 +260,51 @@ class TestPlanClips:
         assert result.api_costs.estimated_cost_usd == 0.01
         assert result.api_costs.cost_incomplete
 
+    def _review_plan(self, auto_clip_count):
+        planner = make_planner()
+        clips = [
+            {**clip(i * 40 + 10, i * 40 + 40, (9 - i,) * 5, summary=f"Idea Title {i}"), "pitch": f"  Pitch   {i}. "}
+            for i in range(6)
+        ]
+        planner._http_client = FakeClient([(200, completion(json.dumps({"insights": "x", "clips": clips})))])
+        result = asyncio.run(planner.plan_clips(
+            transcript_result=make_transcript(300),
+            video_metadata=SimpleNamespace(duration_seconds=300),
+            max_clips=3,
+            auto_clip_count=auto_clip_count,
+            min_duration_seconds=15,
+            max_duration_seconds=60,
+            review_mode=True,
+        ))
+        return result, planner._http_client.payloads[0]["messages"]
+
+    def test_review_mode_asks_for_extra_ideas_and_recommends_the_best(self, no_sleep):
+        from clip_engine.services.intelligence_planner import review_candidate_count
+        assert [review_candidate_count(n) for n in (1, 3, 5, 20)] == [5, 7, 10, 30]
+        result, messages = self._review_plan(auto_clip_count=False)
+        assert "Return up to 7 clips" in messages[0]["content"]
+        assert "return fewer rather than pad" in messages[0]["content"]
+        assert [s.idea_id for s in result.segments] == [f"idea-0{i}" for i in range(1, 7)]
+        assert [s.rank for s in result.segments] == list(range(1, 7))
+        assert [s.recommended for s in result.segments] == [True, True, True, False, False, False]
+        assert result.recommended_count == 3
+        assert result.segments[0].scores == {dim: 9.0 for dim in ("hook", "standalone", "arc", "quotability", "ending")}
+        assert result.segments[0].pitch == "Pitch 0."
+
+    def test_review_mode_with_auto_count_recommends_every_idea(self, no_sleep):
+        result, _ = self._review_plan(auto_clip_count=True)
+        assert result.segments and all(s.recommended for s in result.segments)
+        assert result.recommended_count == len(result.segments)
+
+    def test_without_review_mode_the_count_is_exact(self, no_sleep):
+        planner = make_planner()
+        planner._http_client = FakeClient([(200, completion(json.dumps({"clips": [clip(10, 40)]})))])
+        asyncio.run(planner.plan_clips(
+            transcript_result=make_transcript(300), video_metadata=SimpleNamespace(duration_seconds=300),
+            max_clips=3, auto_clip_count=False, min_duration_seconds=15, max_duration_seconds=60,
+        ))
+        assert "Return exactly 3 clips" in planner._http_client.payloads[0]["messages"][0]["content"]
+
     def test_happy_path_records_real_cost_and_serving_model(self, no_sleep):
         planner = make_planner(planner_model="primary/model")
         content = json.dumps({

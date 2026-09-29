@@ -29,11 +29,13 @@
 ## How it works
 
 ```
- Source video ──▶ Download ──▶ Transcribe ──▶ Find moments ──▶ Render
- (file or link)    yt-dlp      OpenRouter      OpenRouter        FFmpeg
-                           MAI Transcribe 2    LLM ranks the     crop, captions,
-                               word timings    best moments      one file per clip
+ Source video ──▶ Download ──▶ Transcribe ──▶ Find ideas ──▶ You approve ──▶ Render
+ (file or link)    yt-dlp      OpenRouter     OpenRouter      under Jobs      FFmpeg
+                           MAI Transcribe 2   LLM ranks the   approve or      crop, captions,
+                               word timings   best moments    reject each     approved ideas only
 ```
+
+Every job stops after the AI has found its ideas and waits under **Jobs** as **Waiting for approval**. The ideas you asked for are shown in full: title, a short summary, the transcript of that part, the AI's scores and a **Preview** that plays that part of the original video without rendering anything. Extra ideas found in the same AI request are listed by title; approve one straight from its title or open it to read it first. You are not limited to the number you asked for. **Render approved** renders only the approved ideas. The downloaded stream is kept, so you can come back and render more ideas from the same job without paying for the AI again. The **Storage** panel on the Jobs page shows how much space each job uses and deletes a job's downloaded stream with one click; rendered clips stay.
 
 Every run gets its own folder. The **Library** shows completed clips with virality scores, timecodes and tags. **Jobs** shows what is running or queued right now (up to two clipping runs go at once; more wait in a queue) and every earlier run, including completed, failed, cancelled and interrupted jobs; completed runs open their clips, and failed runs from this session can run again. Older runs without a saved status appear as unfinished. You can optionally connect social accounts through Zernio to publish or schedule a selected clip.
 

@@ -7,11 +7,14 @@ const vm = require('node:vm')
 const ts = require('typescript')
 const { fileLinksAvailable, directoryLinkType } = require('../support/symlinks.cjs')
 
+// Modules most main-process files import; a test's own mocks take precedence.
+const DEFAULT_MOCKS = {}
+DEFAULT_MOCKS['./file-identity'] = loadSource('file-identity.ts')
 function loadSource(file, mocks = {}, globals = {}) {
   const source = fs.readFileSync(path.join(__dirname, '../../src/main', file), 'utf8')
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   const module = { exports: {} }
-  vm.runInNewContext(js, { module, exports: module.exports, require: (id) => mocks[id] ?? require(id), URL, Set, Map, process, Buffer, console, setTimeout, clearTimeout, __dirname: path.join(__dirname, '../../src/main'), ...globals })
+  vm.runInNewContext(js, { module, exports: module.exports, require: (id) => mocks[id] ?? DEFAULT_MOCKS[id] ?? require(id), URL, Set, Map, process, Buffer, console, setTimeout, clearTimeout, __dirname: path.join(__dirname, '../../src/main'), ...globals })
   return module.exports
 }
 function loadShared(file) {
@@ -27,6 +30,10 @@ const jobContract = loadShared('job-contract.ts')
 const jobOutput = loadShared('job-output.ts')
 const videoSource = loadShared('video-source.ts')
 const runHistory = loadSource('run-history.ts', { '../shared/video-source': videoSource })
+const sharedJobs = loadShared('jobs.ts')
+const reviewStore = loadSource('review-store.ts', { './run-history': runHistory })
+DEFAULT_MOCKS['../shared/jobs'] = sharedJobs
+DEFAULT_MOCKS['./review-store'] = reviewStore
 const security = loadSource('security.ts', { electron: {}, '../shared/brand': loadShared('brand.ts') })
 const { validateJobConfig } = loadSource('validation.ts', { './security': security, '../shared/video-source': videoSource, '../shared/job-contract': jobContract, '../shared/openrouter-models': loadShared('openrouter-models.ts') })
 
@@ -530,7 +537,9 @@ test('pipeline preserves split JSON messages and protects the job identity', asy
   }, window, undefined, '/tmp/queued-output')
   const forwarded = JSON.parse(workerInput)
   assert.equal(forwarded.video_speed, 1.5)
-  assert.equal(forwarded.contract_version, 2)
+  assert.equal(forwarded.contract_version, 3)
+  assert.equal(forwarded.phase, 'analyze')
+  assert.equal('approved_idea_ids' in forwarded, false)
   assert.equal(forwarded.output_dir, '/tmp/queued-output')
   assert.equal(forwarded.clipping_mode, 'advanced')
   assert.equal(forwarded.planner_model, 'custom/planner')
@@ -582,6 +591,60 @@ test('pipeline rejects a mismatched result identity and a failed process exit', 
     assert.equal(sent.filter((event) => event.channel === 'job:error').length, 1)
     assert.equal(sent.some((event) => event.channel === 'job:complete'), false)
   }
+})
+
+test('an analysis that finds ideas pauses for approval; a render round cannot claim to pause', async () => {
+  const { PassThrough } = require('node:stream')
+  const { EventEmitter } = require('node:events')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-awaiting-'))
+  const jobId = 'b45127ce-1234-4123-8123-567890abcdef'
+  try {
+    for (const phase of ['analyze', 'render']) {
+      const child = new EventEmitter()
+      child.stdin = new PassThrough()
+      child.stdout = new PassThrough()
+      child.stderr = new PassThrough()
+      let workerInput = ''
+      child.stdin.on('data', (chunk) => { workerInput += chunk.toString() })
+      const settings = { outputDirectory: root, pythonPath: 'python3', enginePath: root }
+      const runner = loadSource('pipeline-runner.ts', {
+        electron: { app: { isPackaged: false, getPath: () => TEST_WORK_HOME } },
+        fs: { ...fs, existsSync: () => true },
+        child_process: { execFile: require('node:child_process').execFile, spawn: () => child },
+        './settings-store': { loadSettings: () => settings, getSettingsForBridge: () => ({}), vocabularyTerms: () => [] },
+        './logger': { logger: { info() {}, error() {}, warn() {} } },
+        './run-history': runHistory,
+        '../shared/job-output': jobOutput,
+        '../shared/job-contract': jobContract,
+        './tools': { resolveBinary: () => 'ffmpeg' }
+      })
+      const sent = []
+      const window = { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: (channel, data) => sent.push({ channel, data }) } }
+      fs.rmSync(path.join(root, jobId), { recursive: true, force: true })
+      runHistory.createRunRecord(root, jobId, 'https://www.youtube.com/watch?v=abc123def45')
+      if (phase === 'render') {
+        runHistory.finishRunRecord(root, jobId, 'awaiting_approval')
+        runHistory.beginRenderRound(root, jobId)
+      }
+      runner.startClipJob(jobId, { videoUrl: 'https://www.youtube.com/watch?v=abc123def45', ...(phase === 'render' ? { phase, approvedIdeaIds: ['idea-02'] } : {}) }, window)
+      const forwarded = JSON.parse(workerInput)
+      assert.equal(forwarded.phase, phase)
+      if (phase === 'render') assert.deepEqual(forwarded.approved_idea_ids, ['idea-02'])
+      child.stdout.write(JSON.stringify({ type: 'result', status: 'awaiting_approval', job_id: jobId }) + '\n')
+      child.stdout.end()
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.equal(sent.some((event) => event.channel === 'job:awaiting'), false, 'nothing is final before Python exits')
+      child.emit('close', 0, null)
+      if (phase === 'analyze') {
+        assert.deepEqual(sent.map((event) => event.channel), ['job:awaiting'])
+        assert.equal(runHistory.readRunRecord(root, jobId).status, 'awaiting_approval')
+      } else {
+        assert.deepEqual(sent.map((event) => event.channel), ['job:error'])
+        assert.equal(runHistory.readRunRecord(root, jobId).status, 'awaiting_approval', 'the failed round returns to review')
+        assert.equal(runHistory.readRunRecord(root, jobId).errorMessage, 'The clipping engine returned an unsupported result.')
+      }
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 test('a bridge failure is saved in run history before the UI receives it', async () => {

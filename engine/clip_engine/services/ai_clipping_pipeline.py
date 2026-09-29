@@ -20,6 +20,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass
+from dataclasses import fields as dataclass_fields
 from enum import Enum
 from typing import Any, Callable, Optional
 
@@ -50,11 +51,14 @@ from clip_engine.services.transcription_service import (
     NoAudioTrackError,
     TranscriptionResult,
     TranscriptionService,
+    TranscriptSegment,
+    TranscriptWord,
 )
 from clip_engine.services.visual_clip_sampling import has_visual_change, sample_visual_planning_frames
 from clip_engine.services.video_downloader import (
     DownloadResult,
     VideoDownloaderService,
+    VideoMetadata,
 )
 from clip_engine.services.webhook_service import (
     WebhookService,
@@ -73,8 +77,21 @@ class JobStatus(str, Enum):
     PLANNING = "planning"
     RENDERING = "rendering"
     UPLOADING = "uploading"
+    AWAITING_APPROVAL = "awaiting_approval"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+# "full" runs everything; "analyze" stops after planning and writes review.json;
+# "render" renders approved ideas from a previous analyze run.
+JOB_PHASES = ("full", "analyze", "render")
+REVIEW_FILE = "review"
+REVIEW_VERSION = 1
+MAX_EXCERPT_CHARS = 8000
+
+
+class ReviewStateError(Exception):
+    """The saved review state can't be used to render (missing source, unknown idea)."""
 
 
 @dataclass
@@ -106,9 +123,15 @@ class ClippingJobRequest:
     # "tight" cuts dead air and filler words; "natural" keeps original timing.
     pacing: str = "tight"
     video_speed: float = 1.0
+    phase: str = "full"
+    approved_idea_ids: Optional[list[str]] = None
 
     def __post_init__(self):
         validate_video_speed(self.video_speed)
+        if self.phase not in JOB_PHASES:
+            raise ValueError("Invalid job phase")
+        if self.phase == "render" and not self.approved_idea_ids:
+            raise ValueError("Render phase needs approved ideas")
         if self.job_id is None:
             self.job_id = str(uuid.uuid4())
         if not isinstance(self.job_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", self.job_id):
@@ -225,153 +248,187 @@ class AIClippingPipeline:
                     f"end={request.end_time_seconds}s"
                 )
 
-            # Step 1: Download video
-            current_stage = "download"
-            self._update_progress(job_id, JobStatus.DOWNLOADING, 5, "Downloading video...")
-            stage_start = time.perf_counter()
-            download_result = await self.video_downloader.download_video(
-                url=request.video_url,
-                output_dir=work_dir,
-            )
-            stage_timings["download"] = time.perf_counter() - stage_start
-            logger.info(f"Downloaded: {download_result.metadata.title}")
-
-            video_duration = download_result.metadata.duration_seconds
-            logger.info(f"Video duration: {video_duration:.1f}s ({video_duration/60:.1f} minutes)")
-
-            effective_end_time = request.end_time_seconds
-            if effective_end_time is not None and effective_end_time > video_duration:
-                logger.warning(
-                    f"end_time_seconds ({effective_end_time}s) exceeds video duration "
-                    f"({video_duration:.1f}s), clamping to video end"
-                )
-                effective_end_time = video_duration
-                request.end_time_seconds = effective_end_time
-
-            capture_memory("after_download")
-
-            # Step 2: Transcribe audio
-            current_stage = "transcription"
-            self._update_progress(job_id, JobStatus.TRANSCRIBING, 15, "Transcribing audio...")
-            stage_start = time.perf_counter()
-            previous_transcription_progress = getattr(self.transcription_service, "progress_callback", None)
-            self.transcription_service.progress_callback = lambda message: self._update_progress(
-                job_id, JobStatus.TRANSCRIBING, 15, message,
-            )
-            try:
-                transcription_result = await self.transcription_service.transcribe(
-                    video_path=download_result.video_path,
-                    work_dir=work_dir,
-                    keyterms=request.keyterms,
-                    start_seconds=request.start_time_seconds,
-                    end_seconds=effective_end_time,
-                )
-            except NoAudioTrackError:
-                logger.info("Source has no audio track; trying visual-only planning")
-                transcription_result = TranscriptionResult(segments=[], full_text="", provider="no_audio")
-                transcription_status = "no_speech"
+            review: Optional[dict] = None
+            if request.phase == "render":
+                current_stage = "rendering"
+                (review, download_result, transcription_result, clip_plan,
+                 transcript_upload, plan_upload) = self._load_review_state(request)
+                transcription_status = review["transcription_status"]
+                planning_source = review["planning_source"]
+                visual_frame_count = review["visual_frame_count"]
+                video_duration = download_result.metadata.duration_seconds
+                effective_end_time = review["effective_end_time_seconds"]
             else:
-                if not transcription_result.segments:
-                    transcription_status = "no_speech"
-            finally:
-                self.transcription_service.progress_callback = previous_transcription_progress
-            stage_timings["transcription"] = time.perf_counter() - stage_start
-            logger.info(f"Transcription complete: {len(transcription_result.segments)} segments")
-
-            if transcription_status != "available":
-                self._update_progress(job_id, JobStatus.PLANNING, 25, "Analyzing video frames...")
+                # Step 1: Download video
+                current_stage = "download"
+                self._update_progress(job_id, JobStatus.DOWNLOADING, 5, "Downloading video...")
                 stage_start = time.perf_counter()
-                visual_frames = await sample_visual_planning_frames(
-                    download_result.video_path, video_duration, work_dir,
-                    request.start_time_seconds, effective_end_time,
+                download_result = await self.video_downloader.download_video(
+                    url=request.video_url,
+                    output_dir=work_dir,
                 )
-                stage_timings["visual_sampling"] = time.perf_counter() - stage_start
-                logger.info("Visual-only planning has %s sampled frames", len(visual_frames))
-                if not has_visual_change(visual_frames):
-                    logger.info("Visual-only planning skipped: insufficient visible change")
-                    visual_frames = []
+                stage_timings["download"] = time.perf_counter() - stage_start
+                logger.info(f"Downloaded: {download_result.metadata.title}")
 
-            transcript_data = {
-                "segments": [asdict(s) for s in transcription_result.segments],
-                "full_text": transcription_result.full_text,
-                "language": transcription_result.language,
-                "status": transcription_status,
-                "captions_available": bool(transcription_result.segments),
-            }
+                video_duration = download_result.metadata.duration_seconds
+                logger.info(f"Video duration: {video_duration:.1f}s ({video_duration/60:.1f} minutes)")
 
-            if self.local_mode:
-                transcript_url = self._save_local_json(job_id, "transcript", transcript_data)
-                transcript_upload = UploadResult(
-                    s3_url=transcript_url, bucket="local", key=transcript_url,
-                    file_size_bytes=0, content_type="application/json",
+                effective_end_time = request.end_time_seconds
+                if effective_end_time is not None and effective_end_time > video_duration:
+                    logger.warning(
+                        f"end_time_seconds ({effective_end_time}s) exceeds video duration "
+                        f"({video_duration:.1f}s), clamping to video end"
+                    )
+                    effective_end_time = video_duration
+                    request.end_time_seconds = effective_end_time
+
+                capture_memory("after_download")
+
+                # Step 2: Transcribe audio
+                current_stage = "transcription"
+                self._update_progress(job_id, JobStatus.TRANSCRIBING, 15, "Transcribing audio...")
+                stage_start = time.perf_counter()
+                previous_transcription_progress = getattr(self.transcription_service, "progress_callback", None)
+                self.transcription_service.progress_callback = lambda message: self._update_progress(
+                    job_id, JobStatus.TRANSCRIBING, 15, message,
                 )
-            else:
-                transcript_upload = await self.s3_upload_service.upload_json_artifact(
-                    data=transcript_data,
-                    job_id=job_id,
-                    artifact_name="transcript",
-                    user_id=request.owner_user_id,
+                try:
+                    transcription_result = await self.transcription_service.transcribe(
+                        video_path=download_result.video_path,
+                        work_dir=work_dir,
+                        keyterms=request.keyterms,
+                        start_seconds=request.start_time_seconds,
+                        end_seconds=effective_end_time,
+                    )
+                except NoAudioTrackError:
+                    logger.info("Source has no audio track; trying visual-only planning")
+                    transcription_result = TranscriptionResult(segments=[], full_text="", provider="no_audio")
+                    transcription_status = "no_speech"
+                else:
+                    if not transcription_result.segments:
+                        transcription_status = "no_speech"
+                finally:
+                    self.transcription_service.progress_callback = previous_transcription_progress
+                stage_timings["transcription"] = time.perf_counter() - stage_start
+                logger.info(f"Transcription complete: {len(transcription_result.segments)} segments")
+
+                if transcription_status != "available":
+                    self._update_progress(job_id, JobStatus.PLANNING, 25, "Analyzing video frames...")
+                    stage_start = time.perf_counter()
+                    visual_frames = await sample_visual_planning_frames(
+                        download_result.video_path, video_duration, work_dir,
+                        request.start_time_seconds, effective_end_time,
+                    )
+                    stage_timings["visual_sampling"] = time.perf_counter() - stage_start
+                    logger.info("Visual-only planning has %s sampled frames", len(visual_frames))
+                    if not has_visual_change(visual_frames):
+                        logger.info("Visual-only planning skipped: insufficient visible change")
+                        visual_frames = []
+
+                transcript_data = {
+                    "segments": [asdict(s) for s in transcription_result.segments],
+                    "full_text": transcription_result.full_text,
+                    "language": transcription_result.language,
+                    "status": transcription_status,
+                    "captions_available": bool(transcription_result.segments),
+                }
+
+                if self.local_mode:
+                    transcript_url = self._save_local_json(job_id, "transcript", transcript_data)
+                    transcript_upload = UploadResult(
+                        s3_url=transcript_url, bucket="local", key=transcript_url,
+                        file_size_bytes=0, content_type="application/json",
+                    )
+                else:
+                    transcript_upload = await self.s3_upload_service.upload_json_artifact(
+                        data=transcript_data,
+                        job_id=job_id,
+                        artifact_name="transcript",
+                        user_id=request.owner_user_id,
+                    )
+
+                capture_memory("after_transcription")
+
+                # Step 3: Plan clips using AI
+                current_stage = "planning"
+                self._update_progress(job_id, JobStatus.PLANNING, 30, "Planning viral clips...")
+                stage_start = time.perf_counter()
+                clip_plan = await self.intelligence_planner.plan_clips(
+                    transcript_result=transcription_result,
+                    video_metadata=download_result.metadata,
+                    max_clips=request.max_clips,
+                    auto_clip_count=request.auto_clip_count,
+                    min_duration_seconds=request.min_clip_duration_seconds,
+                    max_duration_seconds=request.max_clip_duration_seconds,
+                    duration_ranges=request.duration_ranges,
+                    target_platform=(
+                        "youtube" if request.aspect_ratio == "16:9" and request.target_platform == "tiktok"
+                        else request.target_platform
+                    ),
+                    frames=visual_frames,
+                    start_time_seconds=request.start_time_seconds,
+                    end_time_seconds=request.end_time_seconds,
+                    aspect_ratio=request.aspect_ratio,
+                    review_mode=request.phase == "analyze",
                 )
+                stage_timings["planning"] = time.perf_counter() - stage_start
+                logger.info(f"Planned {len(clip_plan.segments)} clips")
+                if not clip_plan.segments:
+                    raise RuntimeError(
+                        "No clip-worthy moments found (visual evidence may be insufficient, "
+                        "or the selected time range is too short for the chosen clip length)"
+                    )
 
-            capture_memory("after_transcription")
+                plan_data = {
+                    "segments": [asdict(s) for s in clip_plan.segments],
+                    "total_clips": clip_plan.total_clips,
+                    "target_platform": clip_plan.target_platform,
+                    "insights": clip_plan.insights,
+                    "planning_source": "visual" if visual_frames else "transcript",
+                }
 
-            # Step 3: Plan clips using AI
-            current_stage = "planning"
-            self._update_progress(job_id, JobStatus.PLANNING, 30, "Planning viral clips...")
-            stage_start = time.perf_counter()
-            clip_plan = await self.intelligence_planner.plan_clips(
-                transcript_result=transcription_result,
-                video_metadata=download_result.metadata,
-                max_clips=request.max_clips,
-                auto_clip_count=request.auto_clip_count,
-                min_duration_seconds=request.min_clip_duration_seconds,
-                max_duration_seconds=request.max_clip_duration_seconds,
-                duration_ranges=request.duration_ranges,
-                target_platform=(
-                    "youtube" if request.aspect_ratio == "16:9" and request.target_platform == "tiktok"
-                    else request.target_platform
-                ),
-                frames=visual_frames,
-                start_time_seconds=request.start_time_seconds,
-                end_time_seconds=request.end_time_seconds,
-                aspect_ratio=request.aspect_ratio,
-            )
-            stage_timings["planning"] = time.perf_counter() - stage_start
-            logger.info(f"Planned {len(clip_plan.segments)} clips")
-            if not clip_plan.segments:
-                raise RuntimeError(
-                    "No clip-worthy moments found (visual evidence may be insufficient, "
-                    "or the selected time range is too short for the chosen clip length)"
-                )
+                if self.local_mode:
+                    plan_url = self._save_local_json(job_id, "plan", plan_data)
+                    plan_upload = UploadResult(
+                        s3_url=plan_url, bucket="local", key=plan_url,
+                        file_size_bytes=0, content_type="application/json",
+                    )
+                else:
+                    plan_upload = await self.s3_upload_service.upload_json_artifact(
+                        data=plan_data,
+                        job_id=job_id,
+                        artifact_name="plan",
+                        user_id=request.owner_user_id,
+                    )
 
-            plan_data = {
-                "segments": [asdict(s) for s in clip_plan.segments],
-                "total_clips": clip_plan.total_clips,
-                "target_platform": clip_plan.target_platform,
-                "insights": clip_plan.insights,
-                "planning_source": "visual" if visual_frames else "transcript",
-            }
+                capture_memory("after_planning")
+                planning_source = "visual" if visual_frames else "transcript"
+                visual_frame_count = len(visual_frames)
 
-            if self.local_mode:
-                plan_url = self._save_local_json(job_id, "plan", plan_data)
-                plan_upload = UploadResult(
-                    s3_url=plan_url, bucket="local", key=plan_url,
-                    file_size_bytes=0, content_type="application/json",
-                )
-            else:
-                plan_upload = await self.s3_upload_service.upload_json_artifact(
-                    data=plan_data,
-                    job_id=job_id,
-                    artifact_name="plan",
-                    user_id=request.owner_user_id,
-                )
-
-            capture_memory("after_planning")
+                if request.phase == "analyze":
+                    self._write_review(
+                        request, work_dir, download_result, transcription_result, transcription_status,
+                        planning_source, visual_frame_count, clip_plan, effective_end_time,
+                        transcript_upload, plan_upload,
+                    )
+                    self._update_progress(
+                        job_id, JobStatus.AWAITING_APPROVAL, 100, "Waiting for your approval",
+                        total_clips=len(clip_plan.segments),
+                    )
+                    return ClippingJobResult(
+                        job_id=job_id,
+                        status=JobStatus.AWAITING_APPROVAL,
+                        processing_time_seconds=time.time() - start_time,
+                    )
 
             # Step 4: Render clips (smart framing, parallel)
             current_stage = "rendering"
             clips_dir = os.path.join(work_dir, "clips")
             os.makedirs(clips_dir, exist_ok=True)
+            # A later render round adds to the clips of earlier rounds.
+            previous_output = self._previous_job_output(job_id) if request.phase == "render" else None
+            previous_clips = self._previous_clip_artifacts(previous_output)
+            clip_offset = max((clip.clip_index for clip in previous_clips), default=-1) + 1
 
             total_clips = len(clip_plan.segments)
             self._update_progress(
@@ -514,7 +571,9 @@ class AIClippingPipeline:
                     clips_completed=total_clips, total_clips=total_clips,
                 )
                 stage_start = time.perf_counter()
-                clip_artifacts = self._save_clips_locally(job_id, rendered_clips, clip_durations_ms)
+                clip_artifacts = self._save_clips_locally(
+                    job_id, rendered_clips, clip_durations_ms, start_index=clip_offset,
+                )
                 stage_timings["local_save"] = time.perf_counter() - stage_start
                 logger.info(f"All {len(clip_artifacts)} clips saved locally")
                 # Commit a usable manifest before optional metrics and cost
@@ -525,8 +584,8 @@ class AIClippingPipeline:
                     source_video_url=request.video_url,
                     source_video_title=download_result.metadata.title,
                     source_video_duration_seconds=download_result.metadata.duration_seconds,
-                    total_clips=len(clip_artifacts),
-                    clips=clip_artifacts,
+                    total_clips=len(previous_clips) + len(clip_artifacts),
+                    clips=previous_clips + clip_artifacts,
                     user_id=request.owner_user_id,
                     transcript_url=transcript_upload.s3_url,
                     plan_url=plan_upload.s3_url,
@@ -540,6 +599,8 @@ class AIClippingPipeline:
                 )
                 self._save_local_json(job_id, "job_output", asdict(base_output))
                 saved_local_output = base_output
+                if review is not None:
+                    self._mark_ideas_rendered(job_id, review, clip_artifacts)
             else:
                 self._update_progress(
                     job_id, JobStatus.UPLOADING, 90,
@@ -596,35 +657,17 @@ class AIClippingPipeline:
             rendered_output_bytes = sum(os.path.getsize(path) for path, _ in rendered_clips if os.path.isfile(path))
             capture_memory("before_manifest_upload")
 
-            # Build API cost breakdown
-            api_costs: dict[str, Any] = {}
-            total_cost = 0.0
-
-            if transcription_result.api_costs:
-                tc = transcription_result.api_costs
-                api_costs["transcription"] = {
-                    "provider": tc.provider,
-                    "model": tc.model,
-                    "audio_duration_seconds": round(tc.audio_duration_seconds, 1),
-                    "estimated_cost_usd": tc.estimated_cost_usd,
-                    "attempts": tc.attempts,
-                    "cost_incomplete": tc.cost_incomplete,
-                }
-                total_cost += tc.estimated_cost_usd
-
-            if clip_plan.api_costs:
-                pc = clip_plan.api_costs
-                api_costs["planning"] = {
-                    "provider": pc.provider,
-                    "model": pc.model,
-                    "prompt_tokens": pc.prompt_tokens,
-                    "completion_tokens": pc.completion_tokens,
-                    "total_tokens": pc.total_tokens,
-                    "estimated_cost_usd": pc.estimated_cost_usd,
-                    "attempts": pc.attempts,
-                    "cost_incomplete": pc.cost_incomplete,
-                }
-                total_cost += pc.estimated_cost_usd
+            # Build API cost breakdown. A render round reuses the costs saved
+            # at analysis and adds the layout-vision cost of earlier rounds.
+            api_costs: dict[str, Any] = (
+                dict(review.get("api_costs") or {}) if review is not None
+                else self._analysis_costs(transcription_result, clip_plan)
+            )
+            layout_vision_cost += self._previous_layout_vision_cost(previous_output)
+            total_cost = sum(
+                float(api_costs[section].get("estimated_cost_usd") or 0)
+                for section in ("transcription", "planning") if isinstance(api_costs.get(section), dict)
+            )
 
             if layout_vision_cost:
                 api_costs["layout_vision"] = {
@@ -655,8 +698,8 @@ class AIClippingPipeline:
                     "video_speed": request.video_speed,
                 },
                 "transcription_status": transcription_status,
-                "planning_source": "visual" if visual_frames else "transcript",
-                "visual_frame_count": len(visual_frames),
+                "planning_source": planning_source,
+                "visual_frame_count": visual_frame_count,
                 "captions_status": (
                     "unavailable_without_transcript" if transcription_status != "available"
                     else "enabled" if request.include_captions else "disabled_by_request"
@@ -674,7 +717,10 @@ class AIClippingPipeline:
                 "source_video_size_bytes": download_result.file_size_bytes,
                 "rendered_output_bytes": rendered_output_bytes,
                 "peak_rss_mb": round(peak_rss_mb, 1),
-                "clip_layouts": sorted(clip_layouts, key=lambda c: c["clip_index"]),
+                "clip_layouts": sorted(
+                    [{**entry, "clip_index": entry["clip_index"] + clip_offset} for entry in clip_layouts],
+                    key=lambda c: c["clip_index"],
+                ),
                 # False means vertical clips were letterboxed because OpenCV or
                 # the face model is missing, not because of the video.
                 "smart_framing_available": self.rendering_service.layout_analyzer.available,
@@ -690,8 +736,8 @@ class AIClippingPipeline:
                 source_video_url=request.video_url,
                 source_video_title=download_result.metadata.title,
                 source_video_duration_seconds=download_result.metadata.duration_seconds,
-                total_clips=len(clip_artifacts),
-                clips=clip_artifacts,
+                total_clips=len(previous_clips) + len(clip_artifacts),
+                clips=previous_clips + clip_artifacts,
                 user_id=request.owner_user_id,
                 transcript_url=transcript_upload.s3_url,
                 plan_url=plan_upload.s3_url,
@@ -828,18 +874,262 @@ class AIClippingPipeline:
         logger.info(f"Saved {name}.json locally: {path}")
         return path
 
+    def _read_local_json(self, job_id: str, name: str) -> Optional[Any]:
+        path = os.path.join(self._get_local_output_dir(job_id), f"{name}.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+
+    @staticmethod
+    def _is_inside(path: str, directory: str) -> bool:
+        try:
+            real_dir = os.path.realpath(directory)
+            return os.path.commonpath([os.path.realpath(path), real_dir]) == real_dir
+        except ValueError:  # Different drives on Windows.
+            return False
+
+    def _keep_source(self, job_id: str, video_path: str, work_dir: str) -> tuple[str, bool]:
+        """Move a downloaded source into the run folder so it outlives the work
+        directory. A user's own file is only referenced, never moved."""
+        if not self._is_inside(video_path, work_dir):
+            return video_path, False
+        ext = os.path.splitext(video_path)[1].lower()
+        if not re.fullmatch(r"\.[a-z0-9]{1,5}", ext):
+            ext = ".mp4"
+        dest = os.path.join(self._get_local_output_dir(job_id), f"source{ext}")
+        shutil.move(video_path, dest)
+        return dest, True
+
+    @staticmethod
+    def _excerpt(transcript_segments, segment: ClipPlanSegment) -> str:
+        """The words spoken inside an idea's time range."""
+        start, end = segment.start_time_ms, segment.end_time_ms
+        parts: list[str] = []
+        for seg in transcript_segments:
+            if seg.end_time_ms <= start or seg.start_time_ms >= end:
+                continue
+            if seg.words:
+                parts.extend(w.word for w in seg.words if start <= w.start_time_ms < end)
+            else:
+                parts.append(seg.text)
+        return " ".join(" ".join(parts).split())[:MAX_EXCERPT_CHARS]
+
+    @staticmethod
+    def _analysis_costs(transcription_result: TranscriptionResult, clip_plan: ClipPlanResponse) -> dict[str, Any]:
+        costs: dict[str, Any] = {}
+        if transcription_result.api_costs:
+            tc = transcription_result.api_costs
+            costs["transcription"] = {
+                "provider": tc.provider,
+                "model": tc.model,
+                "audio_duration_seconds": round(tc.audio_duration_seconds, 1),
+                "estimated_cost_usd": tc.estimated_cost_usd,
+                "attempts": tc.attempts,
+                "cost_incomplete": tc.cost_incomplete,
+            }
+        if clip_plan.api_costs:
+            pc = clip_plan.api_costs
+            costs["planning"] = {
+                "provider": pc.provider,
+                "model": pc.model,
+                "prompt_tokens": pc.prompt_tokens,
+                "completion_tokens": pc.completion_tokens,
+                "total_tokens": pc.total_tokens,
+                "estimated_cost_usd": pc.estimated_cost_usd,
+                "attempts": pc.attempts,
+                "cost_incomplete": pc.cost_incomplete,
+            }
+        return costs
+
+    def _write_review(
+        self,
+        request: ClippingJobRequest,
+        work_dir: str,
+        download_result: DownloadResult,
+        transcription_result: TranscriptionResult,
+        transcription_status: str,
+        planning_source: str,
+        visual_frame_count: int,
+        clip_plan: ClipPlanResponse,
+        effective_end_time: Optional[float],
+        transcript_upload: UploadResult,
+        plan_upload: UploadResult,
+    ) -> str:
+        """Save everything a later render round needs, and keep the source."""
+        if not self.local_mode:
+            raise RuntimeError("Idea review is only available in local mode")
+        job_id = request.job_id
+        source_path, downloaded = self._keep_source(job_id, download_result.video_path, work_dir)
+        ideas = []
+        for segment in clip_plan.segments:
+            idea = asdict(segment)
+            idea["excerpt"] = self._excerpt(transcription_result.segments, segment)
+            idea["rendered"] = False
+            idea["clip_index"] = None
+            ideas.append(idea)
+        review = {
+            "version": REVIEW_VERSION,
+            "job_id": job_id,
+            "source": {
+                "path": os.path.abspath(source_path),
+                "downloaded": downloaded,
+                "size_bytes": download_result.file_size_bytes,
+            },
+            "source_type": download_result.source_type,
+            "metadata": asdict(download_result.metadata),
+            "transcription_status": transcription_status,
+            "planning_source": planning_source,
+            "visual_frame_count": visual_frame_count,
+            "effective_end_time_seconds": effective_end_time,
+            "transcript_url": transcript_upload.s3_url,
+            "plan_url": plan_upload.s3_url,
+            "api_costs": self._analysis_costs(transcription_result, clip_plan),
+            "insights": clip_plan.insights,
+            "target_platform": clip_plan.target_platform,
+            "recommended_count": clip_plan.recommended_count or len(ideas),
+            "ideas": ideas,
+        }
+        return self._save_local_json(job_id, REVIEW_FILE, review)
+
+    @staticmethod
+    def _segment_from_idea(idea: dict) -> ClipPlanSegment:
+        known = {f.name for f in dataclass_fields(ClipPlanSegment)}
+        data = {key: value for key, value in idea.items() if key in known}
+        data["skip_ranges_ms"] = [tuple(r) for r in data.get("skip_ranges_ms") or []]
+        data["chapters"] = [tuple(c) for c in data.get("chapters") or []]
+        data["output_chapters"] = []
+        data["subtitle_path"] = None
+        data["render_fallback"] = None
+        return ClipPlanSegment(**data)
+
+    def _load_review_state(self, request: ClippingJobRequest) -> tuple[
+        dict, DownloadResult, TranscriptionResult, ClipPlanResponse, UploadResult, UploadResult,
+    ]:
+        """Rebuild the analysis of an earlier run for a render round."""
+        if not self.local_mode:
+            raise ReviewStateError("Idea review is only available in local mode")
+        job_id = request.job_id
+        review = self._read_local_json(job_id, REVIEW_FILE)
+        if not isinstance(review, dict) or review.get("version") != REVIEW_VERSION:
+            raise ReviewStateError("The saved ideas for this job are missing")
+        source = review.get("source") or {}
+        source_path = source.get("path")
+        if not isinstance(source_path, str) or not os.path.isfile(source_path):
+            raise ReviewStateError("The source video for this job is no longer available")
+        if source.get("downloaded") and not self._is_inside(source_path, self._get_local_output_dir(job_id)):
+            raise ReviewStateError("The source video for this job is no longer available")
+
+        metadata_fields = {f.name for f in dataclass_fields(VideoMetadata)}
+        metadata = VideoMetadata(**{
+            key: value for key, value in (review.get("metadata") or {}).items() if key in metadata_fields
+        })
+        download_result = DownloadResult(
+            video_path=source_path,
+            metadata=metadata,
+            file_size_bytes=int(source.get("size_bytes") or os.path.getsize(source_path)),
+            source_type=review.get("source_type") or "local",
+        )
+
+        transcript = self._read_local_json(job_id, "transcript") or {}
+        segments = [
+            TranscriptSegment(
+                start_time_ms=int(seg["start_time_ms"]),
+                end_time_ms=int(seg["end_time_ms"]),
+                text=seg.get("text") or "",
+                speaker_label=seg.get("speaker_label"),
+                words=[
+                    TranscriptWord(
+                        word=w["word"], start_time_ms=int(w["start_time_ms"]), end_time_ms=int(w["end_time_ms"]),
+                    )
+                    for w in seg.get("words") or []
+                ],
+                audio_events=list(seg.get("audio_events") or []),
+            )
+            for seg in transcript.get("segments") or []
+        ]
+        transcription_result = TranscriptionResult(
+            segments=segments,
+            full_text=transcript.get("full_text") or "",
+            language=transcript.get("language"),
+        )
+
+        ideas = {idea.get("idea_id"): idea for idea in review.get("ideas") or [] if isinstance(idea, dict)}
+        wanted = list(dict.fromkeys(request.approved_idea_ids or []))
+        if not wanted or any(idea_id not in ideas for idea_id in wanted):
+            raise ReviewStateError("An approved idea is not part of this job")
+        if any(ideas[idea_id].get("rendered") for idea_id in wanted):
+            raise ReviewStateError("An approved idea has already been rendered")
+        clip_segments = [self._segment_from_idea(ideas[idea_id]) for idea_id in wanted]
+        clip_plan = ClipPlanResponse(
+            segments=clip_segments,
+            total_clips=len(clip_segments),
+            target_platform=review.get("target_platform") or "tiktok",
+            insights=review.get("insights"),
+        )
+
+        def saved(url: Any) -> UploadResult:
+            url = url if isinstance(url, str) else ""
+            return UploadResult(s3_url=url, bucket="local", key=url, file_size_bytes=0, content_type="application/json")
+
+        return review, download_result, transcription_result, clip_plan, saved(review.get("transcript_url")), saved(review.get("plan_url"))
+
+    def _mark_ideas_rendered(self, job_id: str, review: dict, clip_artifacts: list[ClipArtifact]) -> None:
+        rendered = {clip.idea_id: clip.clip_index for clip in clip_artifacts if clip.idea_id}
+        for idea in review.get("ideas") or []:
+            if idea.get("idea_id") in rendered:
+                idea["rendered"] = True
+                idea["clip_index"] = rendered[idea["idea_id"]]
+        try:
+            self._save_local_json(job_id, REVIEW_FILE, review)
+        except OSError as e:
+            # job_output.json already names each clip's idea, so the app can still tell.
+            logger.warning(f"Could not update review.json: {e}")
+
+    def _previous_job_output(self, job_id: str) -> Optional[dict]:
+        output = self._read_local_json(job_id, "job_output")
+        return output if isinstance(output, dict) else None
+
+    @staticmethod
+    def _previous_clip_artifacts(output: Optional[dict]) -> list[ClipArtifact]:
+        if not output:
+            return []
+        known = {f.name for f in dataclass_fields(ClipArtifact)}
+        return [
+            ClipArtifact(**{key: value for key, value in clip.items() if key in known})
+            for clip in output.get("clips") or [] if isinstance(clip, dict)
+        ]
+
+    @staticmethod
+    def _previous_layout_vision_cost(output: Optional[dict]) -> float:
+        try:
+            return float(output["metrics"]["api_costs"]["layout_vision"]["estimated_cost_usd"])
+        except (KeyError, TypeError, ValueError):
+            return 0.0
+
     def _save_clips_locally(
         self,
         job_id: str,
         rendered_clips: list[tuple[str, ClipPlanSegment]],
         durations_ms: Optional[dict[int, int]] = None,
+        start_index: int = 0,
     ) -> list[ClipArtifact]:
-        """Copy rendered clips to the local output directory."""
+        """Copy rendered clips to the local output directory.
+
+        Clips are numbered from start_index, so a later render round never
+        overwrites the clips of an earlier one.
+        """
         output_dir = self._get_local_output_dir(job_id)
         artifacts = []
 
-        for i, (clip_path, segment) in enumerate(rendered_clips):
+        for n, (clip_path, segment) in enumerate(rendered_clips):
+            i = start_index + n
             dest = os.path.join(output_dir, f"clip_{i:02d}.mp4")
+            # Numbers come from job_output.json, so a file already here is a
+            # leftover of a round that crashed before recording it.
+            if os.path.lexists(dest):
+                os.unlink(dest)
             # The work directory is removed after the job. Linking on the same
             # filesystem keeps the saved clip without duplicating its bytes at
             # the point when all rendered clips and the downloaded source are
@@ -867,7 +1157,7 @@ class AIClippingPipeline:
             artifacts.append(ClipArtifact(
                 clip_index=i,
                 s3_url=f"file://{os.path.abspath(dest)}",
-                duration_ms=(durations_ms or {}).get(i, segment.end_time_ms - segment.start_time_ms),
+                duration_ms=(durations_ms or {}).get(n, segment.end_time_ms - segment.start_time_ms),
                 start_time_ms=segment.start_time_ms,
                 end_time_ms=segment.end_time_ms,
                 virality_score=segment.virality_score,
@@ -878,6 +1168,7 @@ class AIClippingPipeline:
                 description=segment.description,
                 chapters=self._chapter_dicts(segment),
                 subtitle_url=subtitle_url,
+                idea_id=segment.idea_id,
             ))
 
         return artifacts

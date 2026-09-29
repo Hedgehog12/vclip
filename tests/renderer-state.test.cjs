@@ -90,6 +90,26 @@ test('finished job snapshots stay bounded while active jobs remain visible', () 
   assert.ok(jobs['done-59'])
 })
 
+test('jobs waiting for approval are never pruned from the session list', () => {
+  const { useJobStore } = load()
+  const state = useJobStore.getState()
+  state.upsert(snapshot('waiting', 1, { status: 'awaiting_approval', finishedAt: '2025-01-01T00:00:00.000Z' }))
+  for (let index = 0; index < 60; index++) {
+    state.upsert(snapshot(`done-${index}`, 1, {
+      status: 'completed', finishedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString()
+    }))
+  }
+  assert.equal(useJobStore.getState().jobs.waiting.status, 'awaiting_approval')
+})
+
+test('clip idea ids survive output parsing; unknown ids are dropped', () => {
+  const { parseJobOutput } = load()
+  const clip = { clip_index: 0, s3_url: 'file:///c.mp4', duration_ms: 1, start_time_ms: 0, end_time_ms: 1, virality_score: 0.5 }
+  const output = parseJobOutput({ clips: [{ ...clip, idea_id: 'idea-03' }, { ...clip, clip_index: 1, idea_id: '../x' }] })
+  assert.equal(output.clips[0].idea_id, 'idea-03')
+  assert.equal(output.clips[1].idea_id, null)
+})
+
 test('overlapping settings writes merge at dispatch and retain saving state', async () => {
   const first = deferred()
   const writes = []

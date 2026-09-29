@@ -17,6 +17,7 @@ export const STAGE_LABELS: Record<string, string> = {
   planning: 'Finding moments',
   rendering: 'Rendering clips',
   uploading: 'Saving clips',
+  awaiting_approval: 'Waiting for approval',
   completed: 'Done',
   failed: 'Failed',
   cancelled: 'Cancelled'

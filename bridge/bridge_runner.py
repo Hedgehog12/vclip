@@ -36,6 +36,15 @@ DURATION_RANGE_IDS = ("xshort", "short", "medium", "long", "xlong", "extended", 
 # request URLs, proxy credentials and local paths, so only these fixed strings
 # reach the UI. First match wins.
 FAILURES = (
+    (("the source video for this job is no longer available",),
+     "The downloaded video for this job was deleted or moved.",
+     "Ideas can only be rendered while the job's video is kept. Start a new job to clip this video again."),
+    (("the saved ideas for this job are missing", "an approved idea is not part of this job"),
+     "The saved ideas for this job could not be read.",
+     "Start a new job for this video."),
+    (("an approved idea has already been rendered",),
+     "One of the approved ideas has already been rendered.",
+     "Open the job to see its clips, then approve only ideas that have not been rendered."),
     (("selected planner requires a video with speech",),
      "The selected planning model cannot analyze a video without speech.",
      "Choose a planning model that supports silent-video planning in Advanced mode, or use Quality or Economy."),
@@ -247,6 +256,8 @@ async def run(config: dict) -> bool:
         banner_platform=config.get("banner_platform"),
         banner_channel_url=config.get("banner_channel_url"),
         keyterms=config.get("keyterms") or None,
+        phase=config.get("phase", "analyze"),
+        approved_idea_ids=config.get("approved_idea_ids"),
     )
 
     emit({
@@ -263,6 +274,14 @@ async def run(config: dict) -> bool:
     result = await pipeline.process_video(request)
     elapsed = time.monotonic() - start
 
+    if result.status == JobStatus.AWAITING_APPROVAL:
+        emit({
+            "type": "result",
+            "status": "awaiting_approval",
+            "job_id": result.job_id,
+            "processing_time_seconds": elapsed,
+        })
+        return True
     if result.status == JobStatus.COMPLETED and result.output:
         from dataclasses import asdict
         output_data = asdict(result.output)
@@ -292,8 +311,20 @@ def validate_config(config: object) -> dict:
     """Reject malformed bridge requests before loading the engine or writing files."""
     if not isinstance(config, dict):
         raise ValueError("Config must be a JSON object")
-    if type(config.get("contract_version")) is not int or config["contract_version"] != 2:
+    if type(config.get("contract_version")) is not int or config["contract_version"] != 3:
         raise ValueError("Unsupported clipping engine contract version")
+    phase = config.get("phase", "analyze")
+    if phase not in ("analyze", "render"):
+        raise ValueError("Invalid job phase")
+    ideas = config.get("approved_idea_ids")
+    if phase == "render":
+        if (
+            not isinstance(ideas, list) or not 1 <= len(ideas) <= 100
+            or any(not isinstance(i, str) or not re.fullmatch(r"idea-\d{2,3}", i) for i in ideas)
+        ):
+            raise ValueError("Render phase needs approved idea ids")
+    elif ideas is not None:
+        raise ValueError("Approved ideas are only valid for the render phase")
     if type(config.get("layout_vision_enabled")) is not bool:
         raise ValueError("layout_vision_enabled must be a boolean")
     job_id = config.get("job_id")

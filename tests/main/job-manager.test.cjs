@@ -133,6 +133,78 @@ test('live job ids cover queued and running jobs; quitting records queued jobs a
   assert.deepEqual(records, [{ dir: '/clips', jobId: 'c', status: 'cancelled' }])
 })
 
+test('an analyzed job waits for approval without holding a slot, and is never pruned or dismissed', () => {
+  const { manager, starts, enqueue, status } = setup()
+  enqueue('a'); enqueue('b'); enqueue('c')
+  starts[0].sink.webContents.send('job:awaiting', {})
+  assert.equal(status('a'), 'awaiting_approval')
+  assert.equal(manager.isJobBusy('a'), false)
+  assert.deepEqual([...manager.liveJobIds()].sort(), ['b', 'c'])
+  starts[0].onExit()
+  assert.deepEqual(starts.map((s) => s.jobId), ['a', 'b', 'c'])
+  assert.equal(manager.dismissJob('a'), false)
+  for (let i = 0; i < jobs.MAX_FINISHED_JOBS + 5; i++) {
+    enqueue(`x${i}`)
+    starts.at(-1).sink.webContents.send('job:error', { message: 'Stopped.' })
+    starts.at(-1).onExit()
+  }
+  assert.equal(status('a'), 'awaiting_approval', 'waiting jobs survive pruning')
+})
+
+test('a render round keeps the job id and returns to review when it fails, is cancelled, or completes', () => {
+  const { manager, starts, cancelled, enqueue, status } = setup()
+  enqueue('a')
+  starts[0].sink.webContents.send('job:awaiting', {})
+  starts[0].onExit()
+
+  manager.enqueueRenderRound('a', { videoUrl: '/videos/a.mp4', phase: 'render', approvedIdeaIds: ['idea-01', 'idea-03'] }, '/clips', 'awaiting_approval')
+  assert.equal(starts.length, 2)
+  assert.equal(starts[1].jobId, 'a')
+  assert.deepEqual(starts[1].config.approvedIdeaIds, ['idea-01', 'idea-03'])
+  assert.equal(manager.isJobBusy('a'), true)
+  assert.equal(manager.listJobs()[0].clipsTotal, 2)
+  assert.equal('phase' in manager.listJobs()[0].request, false, 'snapshots keep the plain request')
+  starts[1].sink.webContents.send('job:error', { message: 'Clip rendering failed.' })
+  assert.equal(status('a'), 'awaiting_approval', 'a failed round goes back to review')
+  assert.equal(manager.listJobs()[0].error, 'Clip rendering failed.')
+  starts[1].onExit()
+
+  manager.enqueueRenderRound('a', { videoUrl: '/videos/a.mp4', phase: 'render', approvedIdeaIds: ['idea-01'] }, '/clips', 'awaiting_approval')
+  assert.equal(manager.cancelTrackedJob('a'), true)
+  assert.deepEqual(cancelled, ['a'])
+  assert.equal(status('a'), 'awaiting_approval', 'a cancelled round goes back to review')
+  assert.equal(manager.listJobs()[0].error, null)
+  starts[2].onExit()
+
+  manager.enqueueRenderRound('a', { videoUrl: '/videos/a.mp4', phase: 'render', approvedIdeaIds: ['idea-01'] }, '/clips', 'awaiting_approval')
+  starts[3].sink.webContents.send('job:complete', { output: { job_id: 'a', clips: [] } })
+  assert.equal(status('a'), 'completed')
+  starts[3].onExit()
+
+  manager.enqueueRenderRound('a', { videoUrl: '/videos/a.mp4', phase: 'render', approvedIdeaIds: ['idea-02'] }, '/clips', 'completed')
+  starts[4].sink.webContents.send('job:error', { message: 'Clip rendering failed.' })
+  assert.equal(status('a'), 'completed', 'a failed later round leaves the job done')
+})
+
+test('a queued render round cancelled on quit is recorded through the run record, which resumes it', () => {
+  const { manager, records, enqueue } = setup()
+  enqueue('a'); enqueue('b')
+  manager.enqueueRenderRound('c', { videoUrl: '/videos/c.mp4', phase: 'render', approvedIdeaIds: ['idea-01'] }, '/clips', 'completed')
+  assert.equal(manager.isJobBusy('c'), true)
+  manager.cancelQueuedJobsForQuit()
+  assert.deepEqual(records, [{ dir: '/clips', jobId: 'c', status: 'cancelled' }])
+})
+
+test('discarding a waiting job marks it cancelled; other jobs are untouched', () => {
+  const { manager, starts, enqueue, status } = setup()
+  enqueue('a')
+  manager.discardTrackedJob('a')
+  assert.equal(status('a'), 'pending', 'a running job cannot be discarded')
+  starts[0].sink.webContents.send('job:awaiting', {})
+  manager.discardTrackedJob('a')
+  assert.equal(status('a'), 'cancelled')
+})
+
 test('only finished jobs can be dismissed from the session list', () => {
   const { manager, starts, enqueue } = setup()
   enqueue('a')

@@ -63,6 +63,13 @@ class ClipPlanSegment:
     # timeline, and the SRT sidecar path.
     output_chapters: list[tuple[int, str]] = field(default_factory=list)
     subtitle_path: Optional[str] = None
+    # Idea review: the rubric scores (0-10), a 1-2 sentence pitch, and the
+    # idea's identity and place in the ranked list.
+    scores: dict[str, float] = field(default_factory=dict)
+    pitch: Optional[str] = None
+    idea_id: Optional[str] = None
+    rank: int = 0
+    recommended: bool = True
 
 
 @dataclass
@@ -111,6 +118,10 @@ CLIP_PLAN_SCHEMA: dict[str, Any] = {
                     "start_time": {"type": "number", "description": "Clip start, seconds from the start of the video."},
                     "end_time": {"type": "number", "description": "Clip end, seconds from the start of the video."},
                     "summary": {"type": "string", "description": "2-7 word on-screen title."},
+                    "pitch": {
+                        "type": "string",
+                        "description": "1-2 plain sentences: what happens in this clip and why it works.",
+                    },
                     "scores": {
                         "type": "object",
                         "properties": {
@@ -126,7 +137,7 @@ CLIP_PLAN_SCHEMA: dict[str, Any] = {
                         "description": "2-5 single punch words spoken in the clip, highlighted in captions.",
                     },
                 },
-                "required": ["start_time", "end_time", "summary", "scores", "tags", "emphasis"],
+                "required": ["start_time", "end_time", "summary", "pitch", "scores", "tags", "emphasis"],
                 "additionalProperties": False,
             },
         },
@@ -182,6 +193,14 @@ def clip_plan_schema(longform: bool) -> dict[str, Any]:
 # Two clips may share at most this much footage before the weaker one is dropped.
 MAX_CLIP_OVERLAP_MS = 5000
 
+# Idea review asks for extra ideas beyond the requested count, in the same call.
+MAX_REVIEW_IDEAS = 30
+
+
+def review_candidate_count(requested: int) -> int:
+    """How many ideas to ask for when the user will pick from a ranked list."""
+    return min(max(2 * requested, requested + 4), MAX_REVIEW_IDEAS)
+
 # Longform skips: shorter than this is pacing's job, not a content cut.
 MIN_SKIP_MS = 8000
 # A skip never removes more than this share of the clip's footage.
@@ -199,6 +218,7 @@ class ClipPlanResponse:
     target_platform: str = "tiktok"
     insights: Optional[str] = None
     api_costs: Optional[PlanningApiCosts] = None
+    recommended_count: int = 0
 
 
 @dataclass
@@ -378,9 +398,13 @@ class IntelligencePlannerService:
         start_time_seconds: Optional[float] = None,
         end_time_seconds: Optional[float] = None,
         aspect_ratio: str = "9:16",
+        review_mode: bool = False,
     ) -> ClipPlanResponse:
         """
         Plan viral clips from video content.
+
+        In review_mode with a manual count, the model is asked for extra ranked
+        ideas in the same call; the top max_clips are marked recommended.
 
         Args:
             transcript_result: TranscriptionResult from transcription service
@@ -481,14 +505,24 @@ class IntelligencePlannerService:
 
         # Clips can't overlap, so the range only fits so many of the minimum
         # length. Asking for more forces the model to pad or overlap.
-        if effective_duration_seconds > 0:
-            max_fit = max(1, int(effective_duration_seconds // min_duration_seconds))
-            if clip_count > max_fit:
-                logger.info(
-                    f"Clip count capped {clip_count} -> {max_fit}: "
-                    f"{effective_duration_seconds:.0f}s fits at most {max_fit} clips of {min_duration_seconds}s+"
-                )
-                clip_count = max_fit
+        max_fit = (
+            max(1, int(effective_duration_seconds // min_duration_seconds))
+            if effective_duration_seconds > 0 else None
+        )
+        if max_fit is not None and clip_count > max_fit:
+            logger.info(
+                f"Clip count capped {clip_count} -> {max_fit}: "
+                f"{effective_duration_seconds:.0f}s fits at most {max_fit} clips of {min_duration_seconds}s+"
+            )
+            clip_count = max_fit
+        requested_count = clip_count
+        extra_ideas = review_mode and not auto_clip_count
+        if extra_ideas:
+            clip_count = review_candidate_count(requested_count)
+            if max_fit is not None:
+                clip_count = min(clip_count, max_fit)
+            logger.info(f"Idea review: asking for up to {clip_count} ideas ({requested_count} recommended)")
+        self._ask_up_to = review_mode
         longform = bool(transcript) and is_longform(aspect_ratio, min_duration_seconds)
         self._current_longform = longform
         if longform:
@@ -627,6 +661,11 @@ class IntelligencePlannerService:
 
             result.segments = self._finalize_clips(result.segments, clip_count)
             result.total_clips = len(result.segments)
+            for rank, segment in enumerate(result.segments, start=1):
+                segment.rank = rank
+                segment.idea_id = f"idea-{rank:02d}"
+                segment.recommended = not extra_ideas or rank <= requested_count
+            result.recommended_count = sum(1 for s in result.segments if s.recommended)
             result.api_costs = PlanningApiCosts(
                 provider="openrouter",
                 model=served_by,
@@ -654,6 +693,12 @@ class IntelligencePlannerService:
         """Build the system prompt for the planner model."""
         min_duration, max_duration = resolve_clip_duration_bounds(duration_ranges, min_duration, max_duration)
         strict_bounds_text = f"STRICTLY between {min_duration} and {max_duration} seconds"
+        count_instruction = (
+            f"Return up to {clip_count} clips as JSON, best first. Every clip must be worth "
+            "publishing on its own; return fewer rather than pad with weak moments:"
+            if getattr(self, "_ask_up_to", False) else
+            f"Return exactly {clip_count} clips as JSON:"
+        )
 
         duration_guidance = ""
         selected_ranges = [DURATION_RANGES[r][2] for r in duration_ranges or [] if r in DURATION_RANGES]
@@ -742,9 +787,13 @@ Rules:
 
 For each clip, list 2-5 single words, exactly as spoken inside the clip, that carry its punch: numbers and money ("$50K", "97%"), strong verbs, surprising nouns, names. They are highlighted in a contrasting color in the burned-in captions. Never pick articles, pronouns, filler, or words that are not spoken in that clip.
 
+## PITCH
+
+The "pitch" field is 1-2 plain sentences for the creator who decides whether to publish the clip: what happens in it and why it would work. No hype, no emojis.
+
 ## OUTPUT FORMAT
 
-Return exactly {clip_count} clips as JSON:
+{count_instruction}
 {{
   "insights": "<content type classification + brief analysis of the video's key themes and why these clips were selected>",
   "clips": [
@@ -752,6 +801,7 @@ Return exactly {clip_count} clips as JSON:
       "start_time": <number in seconds>,
       "end_time": <number in seconds>,
       "summary": "<2-7 word title>",
+      "pitch": "<1-2 sentences>",
       "scores": {{"hook": <0-10>, "standalone": <0-10>, "arc": <0-10>, "quotability": <0-10>, "ending": <0-10>}},
       "tags": ["tag1", "tag2"],
       "emphasis": ["word1", "word2"]
@@ -820,6 +870,7 @@ Score each episode 0-10 on these keys (be calibrated; reserve 8-10 for exception
 
 - "summary": a 2-7 word YouTube title that promises exactly what the episode delivers. Curiosity is good; clickbait the episode doesn't pay off is not. Match the speaker's tone. Each title unique.
 - "description": 2-4 plain sentences describing what the viewer will learn or see, for the upload description.
+- "pitch": 1-2 plain sentences for the creator deciding whether to publish: what the episode covers and why it holds attention.
 - "tags": 3-8 topical keywords.
 - "emphasis": 2-5 single key words spoken in the episode (names, numbers, key terms).
 
@@ -846,7 +897,8 @@ is too sparse, return an empty clips array. Never invent a spoken quote or capti
 Return JSON with "insights" and "clips". Return at most {clip_count} clips. Each clip must be
 {minimum} to {maximum} seconds long, contained within the video's duration, and grounded in
 the timestamps of the sample frames. Prefer intervals with multiple relevant frames.
-Each clip needs start_time and end_time in seconds, a factual 2-7 word summary, tags,
+Each clip needs start_time and end_time in seconds, a factual 2-7 word summary, a factual
+1-2 sentence pitch describing what is visible and why it could work, tags,
 an empty emphasis array, and scores with hook, standalone, arc, quotability, and ending
 values from 0 to 10. Treat quotability as shareability of the visible moment, not speech.
 Do not overlap clips by more than 5 seconds."""
@@ -946,6 +998,12 @@ Do not overlap clips by more than 5 seconds."""
             })
         
         # Add final instruction
+        short_form_ask = (
+            f"identify up to {clip_count} viral-worthy segments, best first. "
+            "Return fewer rather than pad with weak moments. Return your response as JSON."
+            if getattr(self, "_ask_up_to", False) else
+            f"identify the {clip_count} most viral-worthy segments. Return your response as JSON."
+        )
         user_content.append({
             "type": "text",
             "text": (
@@ -954,7 +1012,7 @@ Do not overlap clips by more than 5 seconds."""
                 "Return fewer rather than pad with weak material. Return your response as JSON."
                 if longform else
                 f"\nBased on the {'transcript and frames' if frame_images else 'transcript'} above, "
-                f"identify the {clip_count} most viral-worthy segments. Return your response as JSON."
+                + short_form_ask
                 if transcript else
                 f"\nSelect up to {clip_count} visually compelling segments supported by these frames. "
                 "Return an empty clips array if none qualify. Return your response as JSON."
@@ -1285,6 +1343,8 @@ Do not overlap clips by more than 5 seconds."""
                         [w for w in clip.get("emphasis", []) if isinstance(w, str)][:5]
                         if transcript else []
                     ),
+                    scores=self._rubric_scores(clip),
+                    pitch=self._clean_pitch(clip.get("pitch")),
                 )
                 if getattr(self, "_current_longform", False):
                     segment.skip_ranges_ms = self._clean_skips(
@@ -1409,21 +1469,34 @@ Do not overlap clips by more than 5 seconds."""
         return spaced
 
     @staticmethod
-    def _score_clip(clip: dict) -> float:
+    def _rubric_scores(clip: dict) -> dict[str, float]:
+        """The rubric scores the model gave, each clamped to 0-10."""
+        scores = clip.get("scores")
+        result: dict[str, float] = {}
+        if isinstance(scores, dict):
+            for dim in RUBRIC_DIMENSIONS:
+                try:
+                    result[dim] = min(10.0, max(0.0, float(scores[dim])))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        return result
+
+    @staticmethod
+    def _clean_pitch(raw: Any) -> Optional[str]:
+        if not isinstance(raw, str):
+            return None
+        pitch = " ".join(raw.split())[:400]
+        return pitch or None
+
+    @classmethod
+    def _score_clip(cls, clip: dict) -> float:
         """Virality score in [0, 1]: mean of the rubric scores / 10.
 
         Falls back to a model-supplied `virality_score`, then 0.5.
         """
-        scores = clip.get("scores")
-        if isinstance(scores, dict):
-            values = []
-            for dim in RUBRIC_DIMENSIONS:
-                try:
-                    values.append(min(10.0, max(0.0, float(scores[dim]))))
-                except (KeyError, TypeError, ValueError):
-                    continue
-            if values:
-                return round(sum(values) / len(values) / 10.0, 3)
+        values = list(cls._rubric_scores(clip).values())
+        if values:
+            return round(sum(values) / len(values) / 10.0, 3)
         try:
             return min(1.0, max(0.0, float(clip.get("virality_score", 0.5))))
         except (TypeError, ValueError):
