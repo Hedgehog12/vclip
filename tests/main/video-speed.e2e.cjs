@@ -17,7 +17,7 @@ test('video speed supports keyboard selection, review, submission and reuse in E
   await app.evaluate(({ ipcMain }, root) => {
     globalThis.speedTest = { submitted: null }
     ipcMain.removeHandler('settings:load')
-    ipcMain.handle('settings:load', () => ({ openrouterConfigured: true, zernioConfigured: false, outputDirectory: root, pythonPath: '', customVocabulary: '' }))
+    ipcMain.handle('settings:load', () => ({ openrouterConfigured: true, zernioConfigured: false, outputDirectory: root, pythonPath: '', customVocabulary: '', thumbnailPrompt: 'Prompt {title}', thumbnailModel: 'google/gemini-3.1-flash-image' }))
     ipcMain.removeHandler('system:checkTools')
     ipcMain.handle('system:checkTools', () => ({ python: true, pythonDeps: true, ffmpeg: true, ffmpegCaptions: true, ffprobe: true, ytdlp: true, engine: true, bridgeRunner: true }))
     ipcMain.removeHandler('job:start')

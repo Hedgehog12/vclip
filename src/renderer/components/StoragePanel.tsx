@@ -5,6 +5,7 @@ import { getApi } from '../lib/ipc'
 import { cn, errorMessage, formatBytes, formatRelativeDate } from '../lib/utils'
 import { Button } from './ui/Button'
 import { Callout } from './ui/Callout'
+import { EmptyState } from './ui/EmptyState'
 import { Panel } from './ui/Panel'
 
 const COLLAPSED_ROWS = 5
@@ -14,11 +15,7 @@ const COLLAPSED_ROWS = 5
  * rendered), its rendered clips, and the rest. A stream can be deleted with
  * one click; the clips stay.
  */
-export function StoragePanel({ refreshKey, onOpenFolder, onChanged }: {
-  refreshKey: unknown
-  onOpenFolder: (dir: string) => void
-  onChanged: () => void
-}): React.JSX.Element | null {
+export function StoragePanel(): React.JSX.Element | null {
   const [usage, setUsage] = useState<StorageUsage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | 'all' | null>(null)
@@ -29,9 +26,28 @@ export function StoragePanel({ refreshKey, onOpenFolder, onChanged }: {
     catch (err) { setError(errorMessage(err, 'Could not measure disk use.')) }
   }, [])
 
-  useEffect(() => { void load() }, [load, refreshKey])
+  useEffect(() => { void load() }, [load])
 
-  if (!usage || usage.runs.length === 0) return null
+  const onOpenFolder = async (dir: string): Promise<void> => {
+    try {
+      if (!await getApi().shell.openPath(dir)) setError('This run folder is unavailable.')
+    } catch (err) {
+      setError(errorMessage(err, 'Could not open this run folder.'))
+    }
+  }
+
+  if (!usage) {
+    return error ? <Callout tone="danger" onDismiss={() => setError(null)}>{error}</Callout> : null
+  }
+  if (usage.runs.length === 0) {
+    return (
+      <EmptyState
+        icon={<HardDrive />}
+        title="Nothing stored yet"
+        description="Downloaded streams and rendered clips from your jobs show up here."
+      />
+    )
+  }
 
   const deleteOne = async (run: RunStorage): Promise<boolean> => {
     const result = await getApi().storage.deleteSource(run.jobId)
@@ -55,7 +71,6 @@ export function StoragePanel({ refreshKey, onOpenFolder, onChanged }: {
     } finally {
       setDeleting(null)
       await load()
-      onChanged()
     }
   }
 
@@ -111,7 +126,7 @@ export function StoragePanel({ refreshKey, onOpenFolder, onChanged }: {
                 aria-label={`Open the folder for ${run.videoTitle}`}
                 title="Open folder"
                 icon={<FolderOpen className="h-3.5 w-3.5" />}
-                onClick={() => onOpenFolder(run.outputDir)}
+                onClick={() => { void onOpenFolder(run.outputDir) }}
                 className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100"
               />
               <Button

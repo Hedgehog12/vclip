@@ -5,6 +5,7 @@ import { ClipPage } from './pages/ClipPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { JobsPage } from './pages/JobsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { StoragePage } from './pages/StoragePage'
 import { AccountsPage } from './pages/AccountsPage'
 import { PostsPage } from './pages/PostsPage'
 import { AutomationsPage } from './pages/AutomationsPage'
@@ -20,6 +21,12 @@ export default function App(): React.JSX.Element {
   const [loadError, setLoadError] = useState(false)
   const [retry, setRetry] = useState(0)
   const [page, setPage] = useState<Page>('clip')
+  // The sidebar and shortcuts open a page at its start. For Jobs that is the
+  // list: a job looked at earlier stays focused otherwise, and new jobs look missing.
+  const openPage = (next: Page): void => {
+    if (next === 'jobs') useJobStore.getState().focusJob(null)
+    setPage(next)
+  }
 
   const loadSettings = useSettingsStore((s) => s.load)
   const checkTools = useSettingsStore((s) => s.checkTools)
@@ -39,7 +46,7 @@ export default function App(): React.JSX.Element {
     return unsubscribe
   }, [])
 
-  // ⌘1 Create, ⌘2 Library, ⌘3 Jobs, ⌘4 Accounts, ⌘5 Posts, ⌘6 Automations, ⌘, Settings,
+  // ⌘1 Create, ⌘2 Library, ⌘3 Jobs, ⌘4 Storage, ⌘5 Accounts, ⌘6 Posts, ⌘7 Automations, ⌘, Settings,
   // ⌘\ collapse or expand the sidebar (Ctrl on Windows/Linux).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
@@ -55,6 +62,7 @@ export default function App(): React.JSX.Element {
       // Switching pages unmounts the page's dialogs. A post in flight would lose
       // its progress and cancel controls while the main process keeps uploading.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+      if (item.id === 'jobs') useJobStore.getState().focusJob(null)
       setPage(item.id)
     }
     window.addEventListener('keydown', onKeyDown)
@@ -69,10 +77,11 @@ export default function App(): React.JSX.Element {
   return (
     <>
       {settingsLoaded ? (
-        <Layout currentPage={page} onNavigate={setPage}>
+        <Layout currentPage={page} onNavigate={openPage}>
           {page === 'clip' && <ClipPage onNavigate={setPage} />}
           {page === 'library' && <LibraryPage onNavigate={setPage} />}
           {page === 'jobs' && <JobsPage onNavigate={setPage} />}
+          {page === 'storage' && <StoragePage />}
           {page === 'accounts' && <AccountsPage onNavigate={setPage} />}
           {page === 'posts' && <PostsPage onNavigate={setPage} />}
           {page === 'automations' && <AutomationsPage onNavigate={setPage} />}

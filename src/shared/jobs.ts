@@ -65,6 +65,11 @@ export interface ReviewIdea {
   /** Longform tangents the render cuts out, in source ms. */
   skipRanges: [number, number][]
   tags: string[]
+  /**
+   * A line from inside the clip that can play first as a hook (cold open),
+   * proposed by the AI. Null when the clip already opens strongly.
+   */
+  hook: { startMs: number; endMs: number; text: string } | null
 }
 
 export interface JobReview {

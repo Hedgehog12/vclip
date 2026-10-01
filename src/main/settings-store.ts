@@ -2,6 +2,8 @@ import { app, safeStorage } from 'electron'
 import { closeSync, existsSync, fchmodSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
 import { isAbsolute, join } from 'path'
 import { randomUUID } from 'crypto'
+import { isModelId } from '../shared/openrouter-models'
+import { DEFAULT_THUMBNAIL_MODEL, DEFAULT_THUMBNAIL_PROMPT } from '../shared/thumbnail-prompt'
 
 /**
  * VlasiichukClip is bring-your-own-key: every provider call is made from this
@@ -16,10 +18,15 @@ export interface AppSettings {
   pythonPath: string
   /** Names and jargon the speech-to-text should spell correctly, one per line. */
   customVocabulary: string
+  /** Prompt template for AI thumbnails; see shared/thumbnail-prompt.ts. */
+  thumbnailPrompt: string
+  /** OpenRouter image model used for AI thumbnails. */
+  thumbnailModel: string
 }
 
 export type ApiKeyName = 'openrouterApiKey' | 'zernioApiKey'
-export type PublicSettings = Pick<AppSettings, 'outputDirectory' | 'pythonPath' | 'customVocabulary'> & {
+export type EditableSettings = Pick<AppSettings, 'outputDirectory' | 'pythonPath' | 'customVocabulary' | 'thumbnailPrompt' | 'thumbnailModel'>
+export type PublicSettings = EditableSettings & {
   openrouterConfigured: boolean
   zernioConfigured: boolean
 }
@@ -32,7 +39,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   zernioApiKey: '',
   outputDirectory: join(app.getPath('home'), 'VlasiichukClip'),
   pythonPath: process.platform === 'win32' ? 'python' : 'python3',
-  customVocabulary: ''
+  customVocabulary: '',
+  thumbnailPrompt: DEFAULT_THUMBNAIL_PROMPT,
+  thumbnailModel: DEFAULT_THUMBNAIL_MODEL
 }
 
 const SETTINGS_VERSION = 7
@@ -46,6 +55,8 @@ interface PersistedSettings {
   outputDirectory: string
   pythonPath: string
   customVocabulary?: string
+  thumbnailPrompt?: string
+  thumbnailModel?: string
 }
 
 function ensureDir(dir: string): string {
@@ -69,7 +80,10 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
     zernioApiKey: (settings.zernioApiKey ?? DEFAULT_SETTINGS.zernioApiKey).trim(),
     outputDirectory: (settings.outputDirectory || DEFAULT_SETTINGS.outputDirectory).trim(),
     pythonPath: (settings.pythonPath || DEFAULT_SETTINGS.pythonPath).trim(),
-    customVocabulary: vocabularyTerms(settings.customVocabulary ?? DEFAULT_SETTINGS.customVocabulary).join('\n')
+    customVocabulary: vocabularyTerms(settings.customVocabulary ?? DEFAULT_SETTINGS.customVocabulary).join('\n'),
+    // An emptied prompt goes back to the default rather than sending nothing.
+    thumbnailPrompt: (settings.thumbnailPrompt ?? '').trim() || DEFAULT_SETTINGS.thumbnailPrompt,
+    thumbnailModel: isModelId(settings.thumbnailModel) ? settings.thumbnailModel : DEFAULT_SETTINGS.thumbnailModel
   }
   normalized.outputDirectory ||= DEFAULT_SETTINGS.outputDirectory
   normalized.pythonPath ||= DEFAULT_SETTINGS.pythonPath
@@ -142,7 +156,9 @@ export function loadSettings(): AppSettings {
       ...secrets,
       outputDirectory: typeof raw.outputDirectory === 'string' ? raw.outputDirectory : DEFAULT_SETTINGS.outputDirectory,
       pythonPath: typeof raw.pythonPath === 'string' ? raw.pythonPath : DEFAULT_SETTINGS.pythonPath,
-      customVocabulary: typeof raw.customVocabulary === 'string' ? raw.customVocabulary : DEFAULT_SETTINGS.customVocabulary
+      customVocabulary: typeof raw.customVocabulary === 'string' ? raw.customVocabulary : DEFAULT_SETTINGS.customVocabulary,
+      thumbnailPrompt: typeof raw.thumbnailPrompt === 'string' ? raw.thumbnailPrompt : DEFAULT_SETTINGS.thumbnailPrompt,
+      thumbnailModel: typeof raw.thumbnailModel === 'string' ? raw.thumbnailModel : DEFAULT_SETTINGS.thumbnailModel
     })
 
     if (needsMigration && canEncrypt()) writeSettings(settings)
@@ -162,7 +178,9 @@ function writeSettings(settings: AppSettings): void {
     zernioApiKey: encodeSecret(settings.zernioApiKey),
     outputDirectory: settings.outputDirectory,
     pythonPath: settings.pythonPath,
-    customVocabulary: settings.customVocabulary
+    customVocabulary: settings.customVocabulary,
+    thumbnailPrompt: settings.thumbnailPrompt,
+    thumbnailModel: settings.thumbnailModel
   }
 
   let fd: number | undefined
@@ -190,18 +208,22 @@ export function publicSettings(settings: AppSettings): PublicSettings {
     outputDirectory: settings.outputDirectory,
     pythonPath: settings.pythonPath,
     customVocabulary: settings.customVocabulary,
+    thumbnailPrompt: settings.thumbnailPrompt,
+    thumbnailModel: settings.thumbnailModel,
     openrouterConfigured: Boolean(settings.openrouterApiKey),
     zernioConfigured: Boolean(settings.zernioApiKey)
   }
 }
 
-export function savePublicSettings(update: Pick<PublicSettings, 'outputDirectory' | 'pythonPath' | 'customVocabulary'>): PublicSettings {
+export function savePublicSettings(update: EditableSettings): PublicSettings {
   const current = loadSettings()
   return publicSettings(saveSettings({
     ...current,
     outputDirectory: update.outputDirectory,
     pythonPath: update.pythonPath,
-    customVocabulary: update.customVocabulary
+    customVocabulary: update.customVocabulary,
+    thumbnailPrompt: update.thumbnailPrompt,
+    thumbnailModel: update.thumbnailModel
   }))
 }
 

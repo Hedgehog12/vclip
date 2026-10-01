@@ -70,6 +70,13 @@ class ClipPlanSegment:
     idea_id: Optional[str] = None
     rank: int = 0
     recommended: bool = True
+    # Cold open (source ms): a line from inside the clip that can play first as
+    # the hook, then again in place. The planner proposes it; the user decides.
+    hook_start_ms: Optional[int] = None
+    hook_end_ms: Optional[int] = None
+    hook_text: Optional[str] = None
+    # YouTube category id (YOUTUBE_CATEGORIES), prefilled when posting.
+    youtube_category: Optional[str] = None
 
 
 @dataclass
@@ -99,6 +106,15 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
 # Conservative fallback when model is unknown
 DEFAULT_PRICING = {"input": 2.00e-6, "output": 12.0e-6}
 
+# YouTube video categories the planner may choose (id: name). The ids are
+# YouTube's own and are sent to it unchanged.
+YOUTUBE_CATEGORIES: dict[str, str] = {
+    "1": "Film & Animation", "2": "Autos & Vehicles", "10": "Music", "15": "Pets & Animals",
+    "17": "Sports", "19": "Travel & Events", "20": "Gaming", "22": "People & Blogs",
+    "23": "Comedy", "24": "Entertainment", "25": "News & Politics", "26": "Howto & Style",
+    "27": "Education", "28": "Science & Technology", "29": "Nonprofits & Activism",
+}
+
 # The five rubric dimensions the model scores each clip on (0-10 each).
 # virality_score is computed from these rather than trusting model arithmetic.
 RUBRIC_DIMENSIONS = ("hook", "standalone", "arc", "quotability", "ending")
@@ -122,6 +138,10 @@ CLIP_PLAN_SCHEMA: dict[str, Any] = {
                         "type": "string",
                         "description": "1-2 plain sentences: what happens in this clip and why it works.",
                     },
+                    "description": {
+                        "type": "string",
+                        "description": "Post description: 1-2 keyword-rich sentences, then 3-6 hashtags.",
+                    },
                     "scores": {
                         "type": "object",
                         "properties": {
@@ -130,14 +150,33 @@ CLIP_PLAN_SCHEMA: dict[str, Any] = {
                         "required": list(RUBRIC_DIMENSIONS),
                         "additionalProperties": False,
                     },
-                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "5-12 search keywords or short phrases, sent to YouTube as tags.",
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": list(YOUTUBE_CATEGORIES),
+                        "description": "YouTube category id that truthfully fits the clip.",
+                    },
                     "emphasis": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "2-5 single punch words spoken in the clip, highlighted in captions.",
                     },
+                    # Plain numbers, not nullable: strict structured output is the most
+                    # widely supported with simple types. -1 means "no cold open".
+                    "hook_start": {
+                        "type": "number",
+                        "description": "Cold open start, seconds from the start of the video, inside the clip. -1 when the clip already opens strongly.",
+                    },
+                    "hook_end": {
+                        "type": "number",
+                        "description": "Cold open end, seconds from the start of the video, inside the clip. -1 when hook_start is -1.",
+                    },
                 },
-                "required": ["start_time", "end_time", "summary", "pitch", "scores", "tags", "emphasis"],
+                "required": ["start_time", "end_time", "summary", "pitch", "description", "scores", "tags", "category", "emphasis", "hook_start", "hook_end"],
                 "additionalProperties": False,
             },
         },
@@ -186,12 +225,20 @@ def clip_plan_schema(longform: bool) -> dict[str, Any]:
         },
         "description": {"type": "string", "description": "2-4 sentence upload description."},
     })
-    item["required"] = [*item["required"], "skip", "chapters", "description"]
+    item["required"] = [*item["required"], "skip", "chapters"]
     return schema
 
 
 # Two clips may share at most this much footage before the weaker one is dropped.
 MAX_CLIP_OVERLAP_MS = 5000
+
+# Cold open: a line of the clip played first as the hook. Shorter than the
+# minimum is a fragment; longer than the maximum is a second clip. A hook that
+# starts in the opening seconds adds nothing, the clip already opens with it.
+HOOK_MIN_MS = 1500
+HOOK_MAX_MS = 8000
+HOOK_MAX_LONGFORM_MS = 15000
+HOOK_MIN_OFFSET_MS = 3000
 
 # Idea review asks for extra ideas beyond the requested count, in the same call.
 MAX_REVIEW_IDEAS = 30
@@ -734,7 +781,7 @@ Each transcript line is `[start - end] (speaker) text (audio events)`, with time
 
 Score every clip you return on these 5 dimensions (each 0-10) in its "scores" object, using the keys hook, standalone, arc, quotability and ending. Be calibrated: reserve 8-10 for genuinely exceptional moments.
 
-1. HOOK STRENGTH (0-10): Does the clip open with something that stops the scroll within the first 3 seconds? A clip that starts with dead air, "um", or a continuation scores 0-2. A clip that opens with a bold claim, shocking stat, or direct question scores 8-10.
+1. HOOK STRENGTH (0-10): Does the clip open with something that stops the scroll within the first 3 seconds? A clip that starts with dead air, "um", or a continuation scores 0-2. A clip that opens with a bold claim, shocking stat, or direct question scores 8-10. If you propose a cold open (see COLD OPEN below), score the opening the viewer will actually see: the cold open line.
 
 2. STANDALONE CLARITY (0-10): Can a viewer understand this clip with ZERO context from the rest of the video? If the clip references "what I said earlier" or assumes knowledge from a previous segment, it scores 0-3. If it is a fully self-contained idea, it scores 8-10.
 
@@ -753,6 +800,14 @@ Prioritize clips whose opening matches one of these proven hook patterns:
 - Number/stat: "I made $50K in 30 days doing this." / "97% of people get this wrong."
 - Story opener: "So last week something crazy happened..." / "Let me tell you about the time..."
 - Direct address: "If you're a developer, you need to hear this." / "Stop doing this right now."
+
+## COLD OPEN (hook_start, hook_end)
+
+Viewers decide in the first 3 seconds. For each clip, pick the single most attention-grabbing line that is spoken INSIDE the clip, for example a bold claim, the surprising conclusion, a contrarian take or a striking number. It will be played first, then the clip plays from its normal start, so the line is heard twice.
+- hook_start / hook_end: seconds from the transcript timestamps, covering one or two complete sentences, 2-6 seconds long.
+- It should create curiosity without giving away the explanation, so the viewer keeps watching to learn why.
+- It must make sense on its own and be taken from the clip's own footage, at least 3 seconds after the clip starts.
+- If the clip already opens with its strongest line, or no line works alone, set both to -1. Do not force one.
 
 ## ANTI-PATTERNS — NEVER SELECT CLIPS THAT:
 
@@ -791,6 +846,19 @@ For each clip, list 2-5 single words, exactly as spoken inside the clip, that ca
 
 The "pitch" field is 1-2 plain sentences for the creator who decides whether to publish the clip: what happens in it and why it would work. No hype, no emojis.
 
+## DESCRIPTION (for Instagram Reels, YouTube Shorts and TikTok)
+
+The "description" is posted under the clip. Search and recommendation read it to decide who sees the clip, so it must say plainly what the clip is about in the words people type when they look for this topic.
+- First 1-2 short sentences (max ~200 characters) naming the concrete topic, tools, names and problem, in the language of the video. Put the most important keyword first. No clickbait that the clip does not deliver, no emojis.
+- Then a blank line and 3-6 hashtags on one line: 1-2 broad ones for the field (#ai, #coding) and the rest specific to this clip (#claudecode, #promptengineering). Lowercase, no spaces inside a hashtag, only topics the clip really covers.
+- Do not repeat the title word for word.
+
+## TAGS
+
+"category" is the YouTube category id that truthfully fits this clip: 1 Film & Animation, 2 Autos & Vehicles, 10 Music, 15 Pets & Animals, 17 Sports, 19 Travel & Events, 20 Gaming, 22 People & Blogs, 23 Comedy, 24 Entertainment, 25 News & Politics, 26 Howto & Style, 27 Education, 28 Science & Technology, 29 Nonprofits & Activism. Coding, AI and software are 28. Tutorials and explanations can be 27 or 26. If unsure, 22.
+
+"tags" are sent to YouTube as the video's keyword tags and help search match the clip. Give 5-12 keywords or short phrases (1-3 words each) that people really type when looking for this topic, in the language of the video: the most specific first (tool, product, person, exact problem), then the broader topic. Lowercase, no "#", no duplicates, no words the clip is not about.
+
 ## OUTPUT FORMAT
 
 {count_instruction}
@@ -802,9 +870,13 @@ The "pitch" field is 1-2 plain sentences for the creator who decides whether to 
       "end_time": <number in seconds>,
       "summary": "<2-7 word title>",
       "pitch": "<1-2 sentences>",
+      "description": "<1-2 keyword sentences>\n\n#hashtag1 #hashtag2 #hashtag3",
       "scores": {{"hook": <0-10>, "standalone": <0-10>, "arc": <0-10>, "quotability": <0-10>, "ending": <0-10>}},
-      "tags": ["tag1", "tag2"],
-      "emphasis": ["word1", "word2"]
+      "tags": ["keyword one", "keyword two"],
+      "category": "<YouTube category id>",
+      "emphasis": ["word1", "word2"],
+      "hook_start": <seconds, or -1 for none>,
+      "hook_end": <seconds, or -1 for none>
     }}
   ]
 }}
@@ -860,7 +932,7 @@ List 3-8 chapters per episode for the YouTube chapter list. The first chapter st
 ## SCORES
 
 Score each episode 0-10 on these keys (be calibrated; reserve 8-10 for exceptional material):
-- hook: how well the first 30 seconds earn the next 10 minutes
+- hook: how well the opening earns the next 10 minutes (if you propose a cold open, the cold open plus the first 30 seconds)
 - standalone: understandable with zero context from the rest of the source
 - arc: a complete progression from setup to payoff
 - quotability: density of insight, story or memorable moments across the whole runtime (retention)
@@ -871,8 +943,16 @@ Score each episode 0-10 on these keys (be calibrated; reserve 8-10 for exception
 - "summary": a 2-7 word YouTube title that promises exactly what the episode delivers. Curiosity is good; clickbait the episode doesn't pay off is not. Match the speaker's tone. Each title unique.
 - "description": 2-4 plain sentences describing what the viewer will learn or see, for the upload description.
 - "pitch": 1-2 plain sentences for the creator deciding whether to publish: what the episode covers and why it holds attention.
-- "tags": 3-8 topical keywords.
+- "tags": 5-12 search keywords or short phrases (1-3 words, lowercase, no "#") that people type on YouTube to find this topic, most specific first. They are sent as the video's YouTube tags.
+- "category": the YouTube category id that truthfully fits the episode (1 Film & Animation, 2 Autos & Vehicles, 10 Music, 15 Pets & Animals, 17 Sports, 19 Travel & Events, 20 Gaming, 22 People & Blogs, 23 Comedy, 24 Entertainment, 25 News & Politics, 26 Howto & Style, 27 Education, 28 Science & Technology, 29 Nonprofits & Activism). Coding, AI and software are 28; if unsure, 22.
 - "emphasis": 2-5 single key words spoken in the episode (names, numbers, key terms).
+
+## COLD OPEN (hook_start, hook_end)
+
+Strong YouTube videos open with a short teaser before the intro. For each episode pick the single most compelling line spoken INSIDE it, for example the boldest claim, the surprising conclusion or the moment of tension. It plays first, then the episode plays from its normal start, so the line is heard twice.
+- hook_start / hook_end: seconds from the transcript timestamps, one to three complete sentences, 3-12 seconds long.
+- Create curiosity without giving away the answer. It must make sense on its own, come from later than 10 seconds into the episode, and must not sit inside a "skip" range.
+- If the episode already opens with its strongest moment, or no line works alone, set both to -1. Do not force one.
 
 ## OUTPUT
 
@@ -898,9 +978,11 @@ Return JSON with "insights" and "clips". Return at most {clip_count} clips. Each
 {minimum} to {maximum} seconds long, contained within the video's duration, and grounded in
 the timestamps of the sample frames. Prefer intervals with multiple relevant frames.
 Each clip needs start_time and end_time in seconds, a factual 2-7 word summary, a factual
-1-2 sentence pitch describing what is visible and why it could work, tags,
-an empty emphasis array, and scores with hook, standalone, arc, quotability, and ending
-values from 0 to 10. Treat quotability as shareability of the visible moment, not speech.
+1-2 sentence pitch describing what is visible and why it could work, a factual description
+(1-2 keyword sentences about what is visible, then a blank line and 3-6 relevant hashtags), tags,
+a YouTube "category" id that fits what is visible (22 if unsure),
+an empty emphasis array, hook_start and hook_end set to -1 (there is no speech to open with),
+and scores with hook, standalone, arc, quotability, and ending values from 0 to 10. Treat quotability as shareability of the visible moment, not speech.
 Do not overlap clips by more than 5 seconds."""
 
     def _build_transcript_text(self, transcript: list) -> str:
@@ -1354,9 +1436,18 @@ Do not overlap clips by more than 5 seconds."""
                         clip.get("chapters"), start_time_ms, end_time_ms, segment.skip_ranges_ms,
                         segment.summary,
                     )
-                    description = clip.get("description")
-                    if isinstance(description, str) and description.strip():
-                        segment.description = description.strip()[:1500]
+                description = clip.get("description")
+                if isinstance(description, str) and description.strip():
+                    segment.description = description.strip()[:1500]
+                category = clip.get("category")
+                if isinstance(category, str) and category in YOUTUBE_CATEGORIES:
+                    segment.youtube_category = category
+                hook = self._clean_hook(
+                    clip, start_time_ms, end_time_ms, segment.skip_ranges_ms, transcript,
+                    snapping, bool(getattr(self, "_current_longform", False)),
+                )
+                if hook:
+                    segment.hook_start_ms, segment.hook_end_ms, segment.hook_text = hook
                 clips.append(segment)
 
             logger.info(f"Parsed {len(clips)} clips from planner response")
@@ -1480,6 +1571,58 @@ Do not overlap clips by more than 5 seconds."""
                 except (KeyError, TypeError, ValueError):
                     continue
         return result
+
+    def _clean_hook(
+        self,
+        clip: dict,
+        start_ms: int,
+        end_ms: int,
+        skips: list[tuple[int, int]],
+        transcript: list,
+        snapping: bool,
+        longform: bool,
+    ) -> Optional[tuple[int, int, str]]:
+        """The cold open the model proposed, or None when it can't be used.
+
+        The hook is only a pointer into the clip's own footage, so every check
+        fails safe: a bad hook is dropped and the clip is kept as planned. The
+        text comes from the transcript words in range, not from the model, so
+        the review shows exactly what will play.
+        """
+        raw_start, raw_end = clip.get("hook_start"), clip.get("hook_end")
+        if not transcript or any(
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in (raw_start, raw_end)
+        ):
+            return None
+        if raw_start < 0 or raw_end <= raw_start:  # -1: the model found no cold open
+            return None
+        hook_start, hook_end = int(raw_start * 1000), int(raw_end * 1000)
+        if snapping:
+            hook_start = find_sentence_start_boundary(transcript, hook_start, max_adjustment_ms=2000)
+            hook_end = find_sentence_end_boundary(transcript, hook_end, max_extension_ms=2500)
+        longest = HOOK_MAX_LONGFORM_MS if longform else HOOK_MAX_MS
+        if (
+            hook_start < start_ms + HOOK_MIN_OFFSET_MS
+            or hook_end > end_ms
+            or not HOOK_MIN_MS <= hook_end - hook_start <= longest
+            or any(hook_start < skip_end and hook_end > skip_start for skip_start, skip_end in skips)
+        ):
+            return None
+        words = [
+            word.word.strip()
+            for segment in transcript
+            for word in segment.words
+            if word.start_time_ms >= hook_start - 50 and word.end_time_ms <= hook_end + 50
+        ]
+        text = " ".join(word for word in words if word)
+        if not text:
+            text = " ".join(
+                segment.text.strip() for segment in transcript
+                if segment.start_time_ms >= hook_start - 50 and segment.end_time_ms <= hook_end + 50 and segment.text
+            )
+        text = re.sub(r"\s+", " ", text).strip()
+        return (hook_start, hook_end, text[:400]) if text else None
 
     @staticmethod
     def _clean_pitch(raw: Any) -> Optional[str]:

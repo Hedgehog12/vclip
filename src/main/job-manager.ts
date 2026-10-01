@@ -2,6 +2,7 @@ import { join } from 'path'
 import { cancelJob as cancelRunningJob, startClipJob, type ClipJobConfig, type JobEventSink } from './pipeline-runner'
 import { finishRunRecord, type ResumeStatus } from './run-history'
 import { logger } from './logger'
+import { queueThumbnailsForIdeas } from './thumbnail-generator'
 import { parseJobOutput } from '../shared/job-output'
 import { isActiveJobStatus, MAX_FINISHED_JOBS, MAX_PARALLEL_JOBS, type ClipJobRequest, type JobSnapshot, type JobStatus } from '../shared/jobs'
 
@@ -76,6 +77,8 @@ export function baseRequest(config: ClipJobConfig): ClipJobRequest {
   delete request.plannerCapabilities
   delete request.phase
   delete request.approvedIdeaIds
+  delete request.thumbnailIdeaIds
+  delete request.hookIdeaIds
   return request
 }
 
@@ -185,6 +188,12 @@ function onRunnerEvent(jobId: string, channel: string, payload: unknown): void {
     const output = parseJobOutput(data.output)
     if (output) {
       finish(jobId, 'completed', { output, percent: 100, step: 'Complete', clipsDone: output.total_clips, clipsTotal: output.total_clips })
+      // The clips are usable now; thumbnails follow in the background and show on each clip card.
+      const thumbnailIds = job.config.phase === 'render' ? job.config.thumbnailIdeaIds ?? [] : []
+      if (thumbnailIds.length) {
+        queueThumbnailsForIdeas(join(job.outputDirectory, jobId), thumbnailIds, job.outputDirectory)
+          .catch(() => logger.warn('thumbnail.queueFailed', { jobId }))
+      }
     } else {
       finishRound(job, 'failed', { error: 'The clipping engine returned an unsupported result.', step: 'Failed' })
     }

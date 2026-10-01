@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { existsSync, realpathSync } from 'fs'
+import { basename, dirname } from 'path'
 import { loadSettings, publicSettings, replaceApiKey, savePublicSettings, type ApiKeyName, type PublicSettings } from './settings-store'
 import { ensureOutputDir, getJobHistory, getJobOutput, generateThumbnail } from './file-manager'
 import {
@@ -19,6 +20,9 @@ import { assertAbsolutePath, assertMediaPath, assertTrustedSender, authorizeMedi
 import { assertPublicWebUrl } from './network-policy'
 import { validateJobConfig } from './validation'
 import { getModelCatalog, resolveAdvancedModels } from './openrouter-models'
+import { isModelId } from '../shared/openrouter-models'
+import { queueThumbnail, resolveRunClip, setCustomThumbnail, thumbnailStatus } from './thumbnail-generator'
+import { updateClipDetails } from './clip-details'
 import { randomUUID } from 'crypto'
 import { resolveBinary, supportsCaptionFilter } from './tools'
 import { approveAutomationTikTokReview, prepareAutomationTikTokReview, addAutomationContent, addLibraryClipsToAutomation, createAutomation, deleteAutomation, isAutomationMedia, listAutomations, removeAutomationContent, runAutomation, updateAutomation, updateAutomationContent } from './automations'
@@ -41,6 +45,7 @@ import {
   listPosts,
   openPostLink,
   openTikTokLegal,
+  openYouTubeStudio,
   probeClipForPosting,
   publishClip,
   refreshPosts,
@@ -79,6 +84,7 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
       const pythonValidation = await validatePython(pythonPath, enginePath)
       if (!pythonValidation.ok) {
         lastEngineCheck = null
+        if (pythonValidation.timedOut) return 'The clipping engine took too long to start (the computer may be busy). Please try again in a moment.'
         return 'The clipping engine is incomplete or incompatible. Open Settings → System check, then repair the VlasiichukClip installation before starting.'
       }
       lastEngineCheck = { key: engineKey, at: Date.now() }
@@ -96,7 +102,8 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
   handle('settings:save', (_event, settings: PublicSettings) => {
     const current = loadSettings()
     if (!settings || typeof settings !== 'object') throw new Error('Invalid settings')
-    if (typeof settings.outputDirectory !== 'string' || typeof settings.pythonPath !== 'string' || typeof settings.customVocabulary !== 'string') throw new Error('Invalid settings')
+    if (typeof settings.outputDirectory !== 'string' || typeof settings.pythonPath !== 'string' || typeof settings.customVocabulary !== 'string' ||
+        typeof settings.thumbnailPrompt !== 'string' || !isModelId(settings.thumbnailModel)) throw new Error('Invalid settings')
     if (settings.outputDirectory !== current.outputDirectory && !selectedOutputDirectories.has(settings.outputDirectory)) throw new Error('Choose the output folder with the folder picker')
     if (app.isPackaged && settings.pythonPath !== current.pythonPath) throw new Error('Runtime paths cannot be changed in packaged builds')
     return savePublicSettings(settings)
@@ -135,6 +142,7 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
   handle('zernio:posts:dismiss', (_event, postId: unknown) => dismissPost(postId))
   handle('zernio:posts:open', (_event, postId: unknown, targetIndex: unknown) => openPostLink(postId, targetIndex))
   handle('zernio:posts:openTikTokLegal', (_event, key: unknown) => openTikTokLegal(key))
+  handle('zernio:posts:openStudio', (_event, postId: unknown, targetIndex: unknown) => openYouTubeStudio(postId, targetIndex))
 
   handle('automations:list', () => listAutomations())
   handle('automations:create', (_event, name: unknown) => createAutomation(name))
@@ -244,11 +252,17 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     return saveDecisions(loadSettings().outputDirectory, jobId, clean)
   })
 
-  handle('review:render', async (_event, value: unknown, ideaIds: unknown) => {
+  handle('review:render', async (_event, value: unknown, ideaIds: unknown, thumbnailIds: unknown = [], hookIds: unknown = []) => {
     const jobId = reviewJobId(value)
     if (!Array.isArray(ideaIds) || ideaIds.length === 0 || ideaIds.length > MAX_IDEAS_PER_RENDER ||
         ideaIds.some((id) => typeof id !== 'string' || !IDEA_ID_PATTERN.test(id)) || new Set(ideaIds).size !== ideaIds.length) {
       return { error: 'Approve at least one idea to render.' }
+    }
+    if (!Array.isArray(thumbnailIds) || thumbnailIds.some((id) => typeof id !== 'string' || !ideaIds.includes(id)) || new Set(thumbnailIds).size !== thumbnailIds.length) {
+      return { error: 'Thumbnails can only be made for approved ideas.' }
+    }
+    if (!Array.isArray(hookIds) || hookIds.some((id) => typeof id !== 'string' || !ideaIds.includes(id)) || new Set(hookIds).size !== hookIds.length) {
+      return { error: 'Cold opens can only be made for approved ideas.' }
     }
     if (isJobBusy(jobId)) return { error: 'This job is already rendering.' }
     const settings = loadSettings()
@@ -259,6 +273,7 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     const byId = new Map(review.ideas.map((idea) => [idea.id, idea]))
     if (ideaIds.some((id) => !byId.has(id as string))) return { error: 'An approved idea is not part of this job.' }
     if (ideaIds.some((id) => byId.get(id as string)!.rendered)) return { error: 'One of these ideas has already been rendered.' }
+    if (hookIds.some((id) => !byId.get(id as string)!.hook)) return { error: 'An idea without a hook line cannot open with one.' }
     if (!(review.sourceDownloaded ? review.sourcePath : userSourcePath(record))) {
       return { error: 'The video for this job was deleted or moved, so its ideas can no longer be rendered.' }
     }
@@ -276,8 +291,8 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     const decisions = { ...(record.decisions ?? {}) }
     for (const id of ideaIds as string[]) decisions[id] = 'approved'
     saveDecisions(baseDir, jobId, decisions)
-    logger.info('review.render', { jobId, ideas: ideaIds.length })
-    enqueueRenderRound(jobId, { ...config, phase: 'render', approvedIdeaIds: ideaIds as string[] }, baseDir, resume)
+    logger.info('review.render', { jobId, ideas: ideaIds.length, thumbnails: thumbnailIds.length, hooks: hookIds.length })
+    enqueueRenderRound(jobId, { ...config, phase: 'render', approvedIdeaIds: ideaIds as string[], thumbnailIdeaIds: thumbnailIds as string[], hookIdeaIds: hookIds as string[] }, baseDir, resume)
     return { ok: true }
   })
 
@@ -340,6 +355,40 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     const thumbnail = await generateThumbnail(videoPath, seekSeconds)
     if (thumbnail) authorizeMedia(thumbnail)
     return thumbnail
+  })
+
+  // AI thumbnails for rendered clips, made with the user's OpenRouter key and image model.
+  const withAuthorizedPath = <T extends { path?: string } | null>(state: T): T => {
+    if (state?.path) {
+      try { authorizeMedia(state.path) } catch { delete state.path }
+    }
+    return state
+  }
+  handle('thumbnails:aiStatus', async (_event, clipPath: unknown) => withAuthorizedPath(await thumbnailStatus(clipPath, loadSettings().outputDirectory)))
+  handle('thumbnails:aiGenerate', async (_event, clipPath: unknown) => {
+    if (!loadSettings().openrouterApiKey) throw new Error('Add your OpenRouter key in Settings to create thumbnails.')
+    return withAuthorizedPath(await queueThumbnail(clipPath, loadSettings().outputDirectory))
+  })
+  // The user's own picture as the thumbnail, picked in the native dialog.
+  handle('thumbnails:upload', async (_event, clipPath: unknown) => {
+    const window = getMainWindow()
+    if (!window) return null
+    const result = await dialog.showOpenDialog(window, {
+      properties: ['openFile'],
+      title: 'Choose a thumbnail picture',
+      filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return withAuthorizedPath(setCustomThumbnail(clipPath, result.filePaths[0], loadSettings().outputDirectory))
+  })
+
+  handle('clips:updateDetails', (_event, clipPath: unknown, update: unknown) => {
+    const library = loadSettings().outputDirectory
+    // A render round rewrites the run's clip list at the end and would undo the edit.
+    if (typeof clipPath === 'string' && isJobBusy(basename(dirname(resolveRunClip(clipPath, library).canonical)))) {
+      throw new Error('Wait until this job finishes rendering, then edit the clip.')
+    }
+    return updateClipDetails(clipPath, update, library)
   })
 
   handle('shell:openPath', async (_event, path: unknown) => {
@@ -457,7 +506,8 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     // made the check report them missing even when installed.
     const check = async (cmd: string, flag = '--version'): Promise<boolean> => {
       try {
-        await execFileAsync(cmd, [flag], { timeout: 5000 })
+        // yt-dlp.exe unpacks itself on every start, which can exceed 5 s on a busy machine.
+        await execFileAsync(cmd, [flag], { timeout: 30_000, windowsHide: true })
         return true
       } catch {
         return false

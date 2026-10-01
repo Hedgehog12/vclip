@@ -7,6 +7,7 @@ import { SourcePreview } from './SourcePreview'
 import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
 import { Callout } from './ui/Callout'
+import { Checkbox } from './ui/Checkbox'
 import { EmptyState } from './ui/EmptyState'
 import { Page } from './ui/Page'
 import { PageHeader } from './ui/PageHeader'
@@ -39,6 +40,22 @@ export function IdeaReview({ jobId, leading, refreshKey, onRenderQueued, onDisca
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [openExtra, setOpenExtra] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
+  // Approved ideas get an AI thumbnail unless the user unticks it.
+  const [noThumbnail, setNoThumbnail] = useState<Set<string>>(new Set())
+  const toggleThumbnail = (id: string, on: boolean): void => setNoThumbnail((current) => {
+    const next = new Set(current)
+    if (on) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  // A cold open (the hook line played first) is on for every idea that has one, unless unticked.
+  const [noHook, setNoHook] = useState<Set<string>>(new Set())
+  const toggleHook = (id: string, on: boolean): void => setNoHook((current) => {
+    const next = new Set(current)
+    if (on) next.delete(id)
+    else next.add(id)
+    return next
+  })
 
   const load = useCallback(async () => {
     try {
@@ -94,6 +111,8 @@ export function IdeaReview({ jobId, leading, refreshKey, onRenderQueued, onDisca
   }
 
   const approvedIds = [...groups.recommended, ...groups.extras].filter((idea) => decisions[idea.id] === 'approved').map((idea) => idea.id)
+  const thumbnailIds = approvedIds.filter((id) => !noThumbnail.has(id))
+  const hookIds = approvedIds.filter((id) => !noHook.has(id) && review.ideas.find((idea) => idea.id === id)?.hook)
   const waiting = review.status === 'awaiting_approval'
   // "You asked for N" only makes sense before anything from this job was rendered.
   const target = waiting && !review.autoClipCount ? review.recommendedCount : null
@@ -105,7 +124,7 @@ export function IdeaReview({ jobId, leading, refreshKey, onRenderQueued, onDisca
     setError(null)
     setWorking('render')
     try {
-      const result = await getApi().review.render(jobId, approvedIds)
+      const result = await getApi().review.render(jobId, approvedIds, thumbnailIds, hookIds)
       if (result.error) setError(result.error)
       else onRenderQueued(jobId)
     } catch (err) {
@@ -139,6 +158,10 @@ export function IdeaReview({ jobId, leading, refreshKey, onRenderQueued, onDisca
       previewing={previewId === idea.id}
       onPreview={() => setPreviewId((current) => (current === idea.id ? null : idea.id))}
       onDecide={(decision) => decide(idea.id, decision)}
+      thumbnail={!noThumbnail.has(idea.id)}
+      onThumbnail={(on) => toggleThumbnail(idea.id, on)}
+      coldOpen={!noHook.has(idea.id)}
+      onColdOpen={(on) => toggleHook(idea.id, on)}
       locked={review.busy}
     />
   )
@@ -191,6 +214,10 @@ export function IdeaReview({ jobId, leading, refreshKey, onRenderQueued, onDisca
                       open={openExtra === idea.id}
                       onToggle={() => setOpenExtra((current) => (current === idea.id ? null : idea.id))}
                       onDecide={(decision) => decide(idea.id, decision)}
+                      thumbnail={!noThumbnail.has(idea.id)}
+                      onThumbnail={(on) => toggleThumbnail(idea.id, on)}
+                      coldOpen={!noHook.has(idea.id)}
+                      onColdOpen={(on) => toggleHook(idea.id, on)}
                       locked={review.busy}
                     />
                     {openExtra === idea.id && <div className="px-3 pb-3">{card(idea)}</div>}
@@ -227,6 +254,8 @@ export function IdeaReview({ jobId, leading, refreshKey, onRenderQueued, onDisca
       <div className="glass-thick sticky bottom-4 z-10 mt-6 flex flex-wrap items-center gap-3 rounded-full py-2 pl-5 pr-2">
         <div className="min-w-0 flex-1 text-sm">
           <span className="font-medium text-ink">{approvedIds.length} approved</span>
+          {approvedIds.length > 0 && <span className="text-ink-muted"> · {thumbnailIds.length} with thumbnail</span>}
+          {hookIds.length > 0 && <span className="text-ink-muted"> · {hookIds.length} with cold open</span>}
           {target !== null && <span className="text-ink-muted"> · you asked for {target}</span>}
           {target !== null && approvedIds.length < target && undecidedExtras > 0 && (
             <span className="block truncate text-xs text-warning">
@@ -318,13 +347,17 @@ function ScoreChip({ score }: { score: number }): React.JSX.Element {
   )
 }
 
-function IdeaCard({ idea, decision, sourcePath, previewing, onPreview, onDecide, locked }: {
+function IdeaCard({ idea, decision, sourcePath, previewing, onPreview, onDecide, thumbnail, onThumbnail, coldOpen, onColdOpen, locked }: {
   idea: ReviewIdea
   decision: IdeaDecision | null
   sourcePath: string | null
   previewing: boolean
   onPreview: () => void
   onDecide: (decision: IdeaDecision) => void
+  thumbnail: boolean
+  onThumbnail: (on: boolean) => void
+  coldOpen: boolean
+  onColdOpen: (on: boolean) => void
   locked: boolean
 }): React.JSX.Element {
   const skipped = idea.skipRanges.reduce((sum, [from, to]) => sum + (to - from), 0)
@@ -347,8 +380,21 @@ function IdeaCard({ idea, decision, sourcePath, previewing, onPreview, onDecide,
             {skipped > 0 && <span>{formatDuration(skipped)} of tangents cut</span>}
           </p>
         </div>
+        {idea.hook && (
+          <OptionToggle label="Cold open" checked={coldOpen} onChange={onColdOpen} disabled={locked || decision === 'rejected'}
+            hint={coldOpen ? 'The hook line below plays first, then the clip. Untick to start the clip normally.' : 'The clip starts normally'} />
+        )}
+        <OptionToggle label="Thumbnail" checked={thumbnail} onChange={onThumbnail} disabled={locked || decision === 'rejected'}
+          hint={thumbnail ? 'An AI thumbnail is made after rendering. Untick to skip it.' : 'No thumbnail for this clip'} />
         <DecisionButtons decision={decision} onDecide={onDecide} locked={locked} />
       </div>
+
+      {idea.hook && (
+        <p className={cn('rounded-xl bg-white/[0.04] px-3 py-2 text-sm leading-relaxed', coldOpen ? 'text-ink' : 'text-ink-subtle line-through decoration-white/20')} data-selectable>
+          <span className="mr-2 text-2xs font-semibold uppercase tracking-wide text-brand-gold">Hook · {formatTimecode(idea.hook.startMs)} · {formatDuration(idea.hook.endMs - idea.hook.startMs)}</span>
+          “{idea.hook.text}”
+        </p>
+      )}
 
       {(idea.pitch || idea.description) && (
         <p className="text-sm leading-relaxed text-ink-muted" data-selectable>{idea.pitch ?? idea.description}</p>
@@ -385,12 +431,16 @@ function IdeaCard({ idea, decision, sourcePath, previewing, onPreview, onDecide,
   )
 }
 
-function IdeaRow({ idea, decision, open, onToggle, onDecide, locked }: {
+function IdeaRow({ idea, decision, open, onToggle, onDecide, thumbnail, onThumbnail, coldOpen, onColdOpen, locked }: {
   idea: ReviewIdea
   decision: IdeaDecision | null
   open: boolean
   onToggle: () => void
   onDecide: (decision: IdeaDecision) => void
+  thumbnail: boolean
+  onThumbnail: (on: boolean) => void
+  coldOpen: boolean
+  onColdOpen: (on: boolean) => void
   locked: boolean
 }): React.JSX.Element {
   return (
@@ -402,7 +452,37 @@ function IdeaRow({ idea, decision, open, onToggle, onDecide, locked }: {
         <span className="hidden sm:inline"><ScoreChip score={idea.viralityScore} /></span>
         <span className="hidden w-14 shrink-0 text-right text-xs text-ink-subtle sm:block">{formatDuration(idea.endMs - idea.startMs)}</span>
       </button>
+      {!open && idea.hook && (
+        <OptionToggle label="Cold open" checked={coldOpen} onChange={onColdOpen} disabled={locked || decision === 'rejected'} compact
+          hint={coldOpen ? `Hook played first: “${idea.hook.text}”. Untick to start the clip normally.` : 'The clip starts normally'} />
+      )}
+      {!open && <OptionToggle label="Thumbnail" checked={thumbnail} onChange={onThumbnail} disabled={locked || decision === 'rejected'} compact
+        hint={thumbnail ? 'An AI thumbnail is made after rendering. Untick to skip it.' : 'No thumbnail for this clip'} />}
       <DecisionButtons decision={decision} onDecide={onDecide} locked={locked} compact />
     </div>
+  )
+}
+
+/** A labelled on/off option for one idea, right before Approve so it is hard to miss. */
+function OptionToggle({ label, hint, checked, onChange, disabled, compact = false }: {
+  label: string
+  hint: string
+  checked: boolean
+  onChange: (on: boolean) => void
+  disabled: boolean
+  compact?: boolean
+}): React.JSX.Element {
+  return (
+    <label
+      title={hint}
+      className={cn(
+        'flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-full px-2.5 text-xs font-medium transition-colors duration-150',
+        checked ? 'bg-white/[0.06] text-ink' : 'text-ink-subtle',
+        disabled && 'cursor-not-allowed opacity-40'
+      )}
+    >
+      <Checkbox checked={checked} onChange={onChange} disabled={disabled} label={label} />
+      <span aria-hidden className={cn(compact && 'hidden sm:inline')}>{label}</span>
+    </label>
   )
 }

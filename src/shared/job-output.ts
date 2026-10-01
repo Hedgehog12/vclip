@@ -7,11 +7,15 @@ export interface ClipArtifact {
   virality_score: number
   layout_type: string
   summary: string | null
+  /** Longer text for the post description; the engine writes it, and the user can edit it in the Library. */
+  description?: string | null
   tags: string[]
   /** Set when smart framing failed and a letterbox fallback produced the clip. */
   render_fallback: string | null
   /** The reviewed idea this clip was rendered from (idea-01 …). */
   idea_id?: string | null
+  /** YouTube category id the planner chose, prefilled when posting. */
+  youtube_category?: string | null
 }
 
 export interface JobOutput {
@@ -169,9 +173,11 @@ export function parseJobOutput(value: unknown): JobOutput | null {
       virality_score: item.virality_score,
       layout_type: typeof item.layout_type === 'string' && ['talking_head', 'two_shot', 'screen_cam', 'screen', 'fit', 'center_crop'].includes(item.layout_type) ? item.layout_type : '',
       summary: boundedText(item.summary, 2048),
+      description: boundedText(item.description, 5000),
       tags: Array.isArray(item.tags) ? item.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 50).map((tag) => tag.slice(0, 64)) : [],
       render_fallback: boundedText(item.render_fallback, 256),
-      idea_id: typeof item.idea_id === 'string' && /^idea-\d{2,3}$/.test(item.idea_id) ? item.idea_id : null
+      idea_id: typeof item.idea_id === 'string' && /^idea-\d{2,3}$/.test(item.idea_id) ? item.idea_id : null,
+      youtube_category: typeof item.youtube_category === 'string' && /^\d{1,3}$/.test(item.youtube_category) ? item.youtube_category : null
     })
   }
   return {

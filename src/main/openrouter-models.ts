@@ -16,6 +16,13 @@ function number(value: unknown, positive = false): number | null {
   return Number.isFinite(n) && (positive ? n > 0 : n >= 0) ? n : null
 }
 
+/** The input a model must accept and the output it must produce for each task. Image models get video frames as references. */
+const TASK_MODALITIES: Record<ModelTask, [string, string]> = {
+  planning: ['text', 'text'],
+  transcription: ['audio', 'transcription'],
+  image: ['image', 'image']
+}
+
 export function parseModelCatalog(value: unknown, task: ModelTask): OpenRouterModel[] {
   const data = record(value).data
   if (!Array.isArray(data) || data.length > 10000) throw new Error('OpenRouter returned an invalid model catalog.')
@@ -25,8 +32,10 @@ export function parseModelCatalog(value: unknown, task: ModelTask): OpenRouterMo
     const architecture = record(raw.architecture)
     const inputs = Array.isArray(architecture.input_modalities) ? architecture.input_modalities : []
     const outputs = Array.isArray(architecture.output_modalities) ? architecture.output_modalities : []
-    if (!isModelId(raw.id) || !inputs.includes(task === 'planning' ? 'text' : 'audio') ||
-        !outputs.includes(task === 'planning' ? 'text' : 'transcription')) continue
+    const [input, output] = TASK_MODALITIES[task]
+    if (!isModelId(raw.id) || !inputs.includes(input) || !outputs.includes(output)) continue
+    // Routers pick a model per request, which makes thumbnail style unpredictable.
+    if (task === 'image' && raw.id.startsWith('openrouter/')) continue
     const parameters = Array.isArray(raw.supported_parameters) ? raw.supported_parameters : []
     let unavailableReason: string | null = null
     if (task === 'planning' && !parameters.includes('structured_outputs')) {
@@ -55,7 +64,7 @@ export function parseModelCatalog(value: unknown, task: ModelTask): OpenRouterMo
 async function fetchModels(task: ModelTask): Promise<OpenRouterModel[]> {
   try {
     // This is a public, read-only catalog. No API key or user-provided URL leaves the main process.
-    const response = await fetch(`https://openrouter.ai/api/v1/models?output_modalities=${task === 'planning' ? 'text' : 'transcription'}`, {
+    const response = await fetch(`https://openrouter.ai/api/v1/models?output_modalities=${TASK_MODALITIES[task][1]}`, {
       redirect: 'error', signal: AbortSignal.timeout(15000), headers: { Accept: 'application/json' }
     })
     if (!response.ok) {
@@ -72,8 +81,13 @@ export async function getModelCatalog(refresh: unknown = false): Promise<OpenRou
   if (typeof refresh !== 'boolean') throw new Error('Invalid model refresh option')
   if (pending) return pending
   if (!refresh && cached && Date.now() - Date.parse(cached.fetchedAt) < CACHE_MS) return cached
-  pending = Promise.all([fetchModels('planning'), fetchModels('transcription')]).then(([planning, transcription]) => {
-    cached = { planning, transcription, fetchedAt: new Date().toISOString() }
+  pending = Promise.all([
+    fetchModels('planning'),
+    fetchModels('transcription'),
+    // Thumbnails are optional: a failed image list must not block clip planning.
+    fetchModels('image').catch(() => [])
+  ]).then(([planning, transcription, image]) => {
+    cached = { planning, transcription, image, fetchedAt: new Date().toISOString() }
     return cached
   })
   try { return await pending } finally { pending = null }

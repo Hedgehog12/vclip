@@ -6,7 +6,6 @@ import { MAX_PARALLEL_JOBS } from '../../shared/jobs'
 import { BackLink, ClipList } from '../components/ClipList'
 import { IdeaReview } from '../components/IdeaReview'
 import { JobFailure, JobProgress, STAGE_LABELS } from '../components/JobProgress'
-import { StoragePanel } from '../components/StoragePanel'
 import type { Page as AppPage } from '../components/Sidebar'
 import { StatusDot } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -209,12 +208,11 @@ export function JobsPage({ onNavigate }: { onNavigate: (page: AppPage) => void }
       }}
       onReview={(entry) => openReview(entry.jobId)}
       onOpenFolder={(dir) => { void openFolder(dir) }}
-      onStorageChanged={() => { void load() }}
     />
   )
 }
 
-function JobsList({ active, entries, filter, query, error, refreshing, onFilter, onQuery, onDismissError, onRefresh, onNew, onOpenJob, onCancel, onOpenEntry, onReview, onOpenFolder, onStorageChanged }: {
+function JobsList({ active, entries, filter, query, error, refreshing, onFilter, onQuery, onDismissError, onRefresh, onNew, onOpenJob, onCancel, onOpenEntry, onReview, onOpenFolder }: {
   active: Job[]
   entries: HistoryEntry[] | null
   filter: Filter
@@ -231,7 +229,6 @@ function JobsList({ active, entries, filter, query, error, refreshing, onFilter,
   onOpenEntry: (entry: HistoryEntry) => void
   onReview: (entry: HistoryEntry) => void
   onOpenFolder: (dir: string) => void
-  onStorageChanged: () => void
 }): React.JSX.Element {
   const sessionJobs = useJobStore((s) => s.jobs)
   const liveIds = useMemo(() => new Set(active.map((job) => job.id)), [active])
@@ -329,8 +326,6 @@ function JobsList({ active, entries, filter, query, error, refreshing, onFilter,
             </section>
           </Panel>
         )}
-
-        <StoragePanel refreshKey={entries} onOpenFolder={onOpenFolder} onChanged={onStorageChanged} />
 
         {nothingYet ? (
           <EmptyState

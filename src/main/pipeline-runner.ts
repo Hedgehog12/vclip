@@ -20,6 +20,10 @@ export type ClipJobConfig = ClipJobRequest & {
   /** Set by main only: 'render' renders approved ideas of a reviewed run. */
   phase?: 'analyze' | 'render'
   approvedIdeaIds?: string[]
+  /** Set by main only: approved ideas whose clip opens with its hook line (cold open). Sent to the engine. */
+  hookIdeaIds?: string[]
+  /** Set by main only: approved ideas that get an AI thumbnail after rendering. Never sent to the engine. */
+  thumbnailIdeaIds?: string[]
 }
 
 /**
@@ -231,10 +235,18 @@ export function resolvePythonPath(enginePath: string, userPythonPath: string): s
  * Validate that the resolved Python can import the bundled clipping engine.
  * Returns { ok, python, error }.
  */
+/**
+ * Importing the engine (yt-dlp, cv2, numpy, the planner) takes 15-25 s on a
+ * busy Windows machine (antivirus scanning, OBS streaming). A short limit made
+ * a healthy install look broken.
+ */
+export const ENGINE_VALIDATION_TIMEOUT_MS = 90_000
+
 export async function validatePython(
   pythonPath: string,
   enginePath: string
-): Promise<{ ok: boolean; python: string; error: string | null }> {
+): Promise<{ ok: boolean; python: string; error: string | null; timedOut?: boolean }> {
+  const startedAt = Date.now()
   try {
     await execFileAsync(
       pythonPath, ['-c', `
@@ -250,12 +262,23 @@ if not LayoutAnalyzer().available:
       {
         cwd: enginePath,
         env: { ...runtimeEnvironment(), PYTHONPATH: enginePath },
-        timeout: 10000
+        timeout: ENGINE_VALIDATION_TIMEOUT_MS,
+        windowsHide: true
       }
     )
     return { ok: true, python: pythonPath, error: null }
-  } catch {
-    return { ok: false, python: pythonPath, error: 'The clipping engine is missing a required dependency, smart framing model, or compatible bridge contract.' }
+  } catch (error) {
+    const failure = error as { killed?: boolean; signal?: string | null; code?: unknown }
+    const timedOut = Boolean(failure?.killed) && Date.now() - startedAt >= ENGINE_VALIDATION_TIMEOUT_MS - 1000
+    logger.warn('engine.validate.failed', {
+      timedOut,
+      elapsedMs: Date.now() - startedAt,
+      exitCode: typeof failure?.code === 'number' ? failure.code : null,
+      signal: typeof failure?.signal === 'string' ? failure.signal : null
+    })
+    return timedOut
+      ? { ok: false, python: pythonPath, error: 'The clipping engine took too long to start. The computer may be busy; try again.', timedOut }
+      : { ok: false, python: pythonPath, error: 'The clipping engine is missing a required dependency, smart framing model, or compatible bridge contract.', timedOut }
   }
 }
 
@@ -396,7 +419,7 @@ export function startClipJob(
     contract_version: BRIDGE_CONTRACT_VERSION,
     job_id: jobId,
     phase: renderPhase ? 'render' : 'analyze',
-    ...(renderPhase ? { approved_idea_ids: config.approvedIdeaIds ?? [] } : {}),
+    ...(renderPhase ? { approved_idea_ids: config.approvedIdeaIds ?? [], hook_idea_ids: config.hookIdeaIds ?? [] } : {}),
     video_url: config.videoUrl,
     clipping_mode: config.clippingMode ?? 'quality',
     ...(config.clippingMode === 'advanced' ? {

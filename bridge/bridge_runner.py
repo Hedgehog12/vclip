@@ -258,6 +258,7 @@ async def run(config: dict) -> bool:
         keyterms=config.get("keyterms") or None,
         phase=config.get("phase", "analyze"),
         approved_idea_ids=config.get("approved_idea_ids"),
+        hook_idea_ids=config.get("hook_idea_ids"),
     )
 
     emit({
@@ -325,6 +326,12 @@ def validate_config(config: object) -> dict:
             raise ValueError("Render phase needs approved idea ids")
     elif ideas is not None:
         raise ValueError("Approved ideas are only valid for the render phase")
+    hooks = config.get("hook_idea_ids")
+    if hooks is not None and (
+        phase != "render" or not isinstance(hooks, list) or len(hooks) > 100 or len(set(hooks)) != len(hooks)
+        or any(not isinstance(i, str) or i not in ideas for i in hooks)
+    ):
+        raise ValueError("Cold opens need approved idea ids")
     if type(config.get("layout_vision_enabled")) is not bool:
         raise ValueError("layout_vision_enabled must be a boolean")
     job_id = config.get("job_id")

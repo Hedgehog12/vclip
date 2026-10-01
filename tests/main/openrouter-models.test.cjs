@@ -54,6 +54,25 @@ test('incompatible models remain searchable with an explanation and cannot start
   assert.equal((await api.resolveAdvancedModels('provider/planner', 'provider/transcriber')).id, 'provider/planner')
 })
 
+const imageModel = (id = 'google/image', inputs = ['image', 'text']) => ({
+  id, name: 'Google: Image', architecture: { input_modalities: inputs, output_modalities: ['image', 'text'] },
+  supported_parameters: [], pricing: {}
+})
+
+test('image catalog lists only models that take frames and return an image, without routers', () => {
+  const api = load()
+  const data = [imageModel(), imageModel('recraft/text-only', ['text']), imageModel('openrouter/auto'), planner(), transcriber()]
+  assert.deepEqual(api.parseModelCatalog({ data }, 'image').map((model) => model.id), ['google/image'])
+})
+
+test('a failed image catalog leaves planning and transcription usable', async () => {
+  const api = load(async (url) => url.endsWith('image') ? new Response('down', { status: 500 })
+    : Response.json({ data: url.endsWith('text') ? [planner()] : [transcriber()] }))
+  const catalog = await api.getModelCatalog()
+  assert.equal(catalog.planning.length, 1)
+  assert.deepEqual(catalog.image, [])
+})
+
 test('search matches provider, name and ID with multiple words', () => {
   const api = load()
   const models = api.parseModelCatalog({ data: [planner(), planner('other/second', { name: 'Another choice' })] }, 'planning')
@@ -70,11 +89,11 @@ test('public catalog requests are bounded, redirect-free, cached, and shared whi
   })
   const [first, second] = await Promise.all([api.getModelCatalog(), api.getModelCatalog()])
   assert.equal(first, second)
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
   await api.getModelCatalog()
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
   await api.getModelCatalog(true)
-  assert.equal(calls.length, 4)
+  assert.equal(calls.length, 6)
   for (const { url, options } of calls) {
     assert.equal(new URL(url).origin, 'https://openrouter.ai')
     assert.equal(options.redirect, 'error')

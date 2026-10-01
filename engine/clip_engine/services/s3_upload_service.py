@@ -55,6 +55,8 @@ class ClipArtifact:
     subtitle_url: Optional[str] = None
     # The reviewed idea this clip was rendered from.
     idea_id: Optional[str] = None
+    # YouTube category id the planner chose; prefilled when posting.
+    youtube_category: Optional[str] = None
 
 
 @dataclass

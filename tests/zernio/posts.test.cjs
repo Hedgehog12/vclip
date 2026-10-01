@@ -1152,3 +1152,49 @@ test('a not-found cancellation cannot write into a newly selected workspace', ()
   main.service.resetZernioState(() => null)
   assert.equal(main.posts.listPosts().find((post) => post.id === result.post.id).status, 'scheduled')
 }))
+
+test('the clip thumbnail goes up once as a JPEG cover, for the Instagram cover and the YouTube thumbnail', () => withPosting(async ({ mock, posting, clipPath, accounts, publish }) => {
+  const thumbnail = clipPath.replace(/\.mp4$/, '.thumbnail.png')
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0xFF6A3D:s=1080x1920', '-frames:v', '1', thumbnail])
+  const targets = [{ platform: 'instagram', accountId: accounts.instagram._id }, { platform: 'youtube', accountId: accounts.youtube._id }]
+  const options = { instagram: { shareToFeed: true }, youtube: { title: 'Why agents need tests', visibility: 'public', madeForKids: false } }
+  const result = await publish({ targets, options, thumbnailPath: thumbnail })
+  assert.equal(result.outcome, 'published')
+
+  const presign = mock.requestsTo('POST', '/api/v1/media/presign')
+  assert.equal(presign.length, 2, 'the video and the cover')
+  const cover = posting.state.uploads.find((upload) => upload.contentType === 'image/jpeg')
+  assert.ok(cover, 'the PNG thumbnail was converted to JPEG')
+  assert.ok(cover.bytes > 0 && cover.bytes <= 2 * 1024 * 1024)
+  const coverUrl = posting.state.presigned.get(cover.key).publicUrl
+  const body = posting.state.creates[0].body
+  assert.equal(body.mediaItems[0].thumbnail, coverUrl, 'sent for Shorts too; YouTube accepts them since July 2026')
+  assert.equal(body.platforms.find((p) => p.platform === 'instagram').platformSpecificData.instagramThumbnail, coverUrl)
+  assert.equal(body.platforms.find((p) => p.platform === 'youtube').platformSpecificData.instagramThumbnail, undefined)
+
+  // A new post of the same attempt (e.g. after a failure) reuses both uploads.
+  await publish({ targets, options, thumbnailPath: thumbnail, caption: 'Another caption' })
+  assert.equal(mock.requestsTo('POST', '/api/v1/media/presign').length, 2)
+}))
+
+test('no cover is uploaded without a thumbnail, for platforms without covers, or for a picture of another clip', () => withPosting(async ({ mock, posting, clipPath, accounts, publish }) => {
+  const thumbnail = clipPath.replace(/\.mp4$/, '.thumbnail.png')
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0xFF6A3D:s=320x568', '-frames:v', '1', thumbnail])
+  await publish({ attemptId: 'attempt-no-cover-1', targets: [{ platform: 'tiktok', accountId: accounts.tiktok._id }], options: { tiktok: tiktokOptions([accounts.tiktok._id]) }, thumbnailPath: thumbnail })
+  assert.equal(posting.state.uploads.filter((u) => u.contentType === 'image/jpeg').length, 0, 'TikTok takes no cover')
+  assert.equal(posting.state.creates[0].body.mediaItems[0].thumbnail, undefined)
+
+  const other = path.join(path.dirname(clipPath), 'clip_02.thumbnail.png')
+  fs.copyFileSync(thumbnail, other)
+  await assert.rejects(publish({ attemptId: 'attempt-no-cover-2', targets: [{ platform: 'instagram', accountId: accounts.instagram._id }], options: { instagram: { shareToFeed: true } }, thumbnailPath: other }), /does not belong to this clip/)
+  await assert.rejects(publish({ attemptId: 'attempt-no-cover-3', thumbnailPath: clipPath }), /Invalid/)
+  assert.equal(mock.requestsTo('POST', '/api/v1/media/presign').filter((r) => r.body?.contentType === 'image/jpeg').length, 0)
+}))
+
+test('a horizontal clip sends its thumbnail to YouTube', () => withPosting(async ({ posting, clipPath, accounts, publish }) => {
+  const thumbnail = clipPath.replace(/\.mp4$/, '.thumbnail.jpg')
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0xFF6A3D:s=1280x720', '-frames:v', '1', thumbnail])
+  await publish({ thumbnailPath: thumbnail })
+  const cover = posting.state.uploads.find((upload) => upload.contentType === 'image/jpeg')
+  assert.equal(posting.state.creates[0].body.mediaItems[0].thumbnail, posting.state.presigned.get(cover.key).publicUrl)
+}, { clip: { width: 640, height: 360 } }))

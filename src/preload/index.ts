@@ -13,6 +13,7 @@ import type { ClipMediaInfo, PostClipRequest, PostClipResult, PostProgress, Post
 import type { ClipJobRequest, IdeaDecision, JobReview, JobSnapshot, StorageUsage } from '../shared/jobs'
 import type { Automation, AutomationUpdate, AutomationTikTokReview, AutomationTikTokReviewUpdate } from '../shared/automations'
 import type { OpenRouterCatalog } from '../shared/openrouter-models'
+import type { ClipArtifact } from '../shared/job-output'
 
 export interface ClipSettings {
   openrouterConfigured: boolean
@@ -20,6 +21,20 @@ export interface ClipSettings {
   outputDirectory: string
   pythonPath: string
   customVocabulary: string
+  /** Prompt template for AI thumbnails. */
+  thumbnailPrompt: string
+  /** OpenRouter image model for AI thumbnails. */
+  thumbnailModel: string
+}
+
+/** An AI thumbnail of a rendered clip. `path` is set when ready. */
+export interface AiThumbnail {
+  status: 'pending' | 'ready' | 'failed'
+  path?: string
+  error?: string
+  model?: string
+  costUsd?: number
+  updatedAt: string
 }
 
 export type { ClipJobRequest, IdeaDecision, JobReview, JobSnapshot, ReviewIdea, RunStorage, StorageUsage } from '../shared/jobs'
@@ -113,6 +128,8 @@ export interface VlasiichukClipAPI {
       dismiss: (postId: string) => Promise<PostRecord[]>
       open: (postId: string, targetIndex: number) => Promise<void>
       openTikTokLegal: (key: TikTokLegalLink) => Promise<void>
+      /** Opens a posted YouTube video's edit page in YouTube Studio. */
+      openStudio: (postId: string, targetIndex: number) => Promise<void>
     }
   }
   job: {
@@ -134,7 +151,9 @@ export interface VlasiichukClipAPI {
   review: {
     get: (jobId: string) => Promise<JobReview | null>
     decide: (jobId: string, decisions: Record<string, IdeaDecision>) => Promise<boolean>
-    render: (jobId: string, ideaIds: string[]) => Promise<{ ok?: true; error?: string }>
+    /** `thumbnailIdeaIds`: the approved ideas that also get an AI thumbnail. */
+    /** `hookIdeaIds`: the approved ideas that open with their hook line (cold open). */
+    render: (jobId: string, ideaIds: string[], thumbnailIdeaIds: string[], hookIdeaIds: string[]) => Promise<{ ok?: true; error?: string }>
     discard: (jobId: string) => Promise<{ ok?: true; error?: string }>
   }
   /** Disk space used by each job, and deleting a job's downloaded stream. */
@@ -144,6 +163,12 @@ export interface VlasiichukClipAPI {
   }
   thumbnails: {
     generate: (videoPath: string, seekSeconds?: number) => Promise<string | null>
+    /** The clip's AI thumbnail, or null when none was requested. */
+    aiStatus: (clipPath: string) => Promise<AiThumbnail | null>
+    /** Make (or remake) the clip's AI thumbnail in the background. */
+    aiGenerate: (clipPath: string) => Promise<AiThumbnail | null>
+    /** Pick a picture and use it as the clip's thumbnail. Null when cancelled. */
+    upload: (clipPath: string) => Promise<AiThumbnail | null>
   }
   shell: {
     /** Opens a local path with its default app, or an http(s) URL in the browser. */
@@ -155,6 +180,8 @@ export interface VlasiichukClipAPI {
   }
   clips: {
     bulkExport: (clips: { path: string; name: string }[]) => Promise<{ success: boolean; count: number; failedCount: number; destDir?: string }>
+    /** Save a clip's edited title and description; returns the updated clip. */
+    updateDetails: (clipPath: string, details: { title: string; description: string }) => Promise<ClipArtifact>
   }
   system: {
     isPackaged: () => Promise<boolean>
@@ -226,7 +253,8 @@ const api: VlasiichukClipAPI = {
       retry: (postId) => ipcRenderer.invoke('zernio:posts:retry', postId),
       dismiss: (postId) => ipcRenderer.invoke('zernio:posts:dismiss', postId),
       open: (postId, targetIndex) => ipcRenderer.invoke('zernio:posts:open', postId, targetIndex),
-      openTikTokLegal: (key) => ipcRenderer.invoke('zernio:posts:openTikTokLegal', key)
+      openTikTokLegal: (key) => ipcRenderer.invoke('zernio:posts:openTikTokLegal', key),
+      openStudio: (postId, targetIndex) => ipcRenderer.invoke('zernio:posts:openStudio', postId, targetIndex)
     }
   },
   job: {
@@ -243,7 +271,7 @@ const api: VlasiichukClipAPI = {
   review: {
     get: (jobId) => ipcRenderer.invoke('review:get', jobId),
     decide: (jobId, decisions) => ipcRenderer.invoke('review:decide', jobId, decisions),
-    render: (jobId, ideaIds) => ipcRenderer.invoke('review:render', jobId, ideaIds),
+    render: (jobId, ideaIds, thumbnailIdeaIds, hookIdeaIds) => ipcRenderer.invoke('review:render', jobId, ideaIds, thumbnailIdeaIds, hookIdeaIds),
     discard: (jobId) => ipcRenderer.invoke('review:discard', jobId)
   },
   storage: {
@@ -251,7 +279,10 @@ const api: VlasiichukClipAPI = {
     deleteSource: (jobId) => ipcRenderer.invoke('storage:deleteSource', jobId)
   },
   thumbnails: {
-    generate: (videoPath, seekSeconds) => ipcRenderer.invoke('thumbnails:generate', videoPath, seekSeconds)
+    generate: (videoPath, seekSeconds) => ipcRenderer.invoke('thumbnails:generate', videoPath, seekSeconds),
+    aiStatus: (clipPath) => ipcRenderer.invoke('thumbnails:aiStatus', clipPath),
+    aiGenerate: (clipPath) => ipcRenderer.invoke('thumbnails:aiGenerate', clipPath),
+    upload: (clipPath) => ipcRenderer.invoke('thumbnails:upload', clipPath)
   },
   shell: {
     openPath: (path) => ipcRenderer.invoke('shell:openPath', path),
@@ -261,7 +292,8 @@ const api: VlasiichukClipAPI = {
     selectVideo: () => ipcRenderer.invoke('dialog:selectVideo')
   },
   clips: {
-    bulkExport: (clips) => ipcRenderer.invoke('clips:bulkExport', clips)
+    bulkExport: (clips) => ipcRenderer.invoke('clips:bulkExport', clips),
+    updateDetails: (clipPath, details) => ipcRenderer.invoke('clips:updateDetails', clipPath, details)
   },
   system: {
     isPackaged: () => ipcRenderer.invoke('system:isPackaged'),

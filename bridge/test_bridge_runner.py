@@ -95,6 +95,21 @@ class BridgeTests(unittest.TestCase):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
                 bridge.validate_config(self.config(**overrides))
 
+    def test_cold_open_ids_must_be_approved_ideas_of_a_render_round(self):
+        ok = self.config(phase="render", approved_idea_ids=["idea-01", "idea-02"], hook_idea_ids=["idea-02"])
+        self.assertEqual(bridge.validate_config(ok)["hook_idea_ids"], ["idea-02"])
+        bridge.validate_config(self.config(phase="render", approved_idea_ids=["idea-01"], hook_idea_ids=[]))
+        for overrides in (
+            {"phase": "render", "approved_idea_ids": ["idea-01"], "hook_idea_ids": ["idea-02"]},
+            {"phase": "render", "approved_idea_ids": ["idea-01"], "hook_idea_ids": ["idea-01", "idea-01"]},
+            {"phase": "render", "approved_idea_ids": ["idea-01"], "hook_idea_ids": "idea-01"},
+            {"phase": "render", "approved_idea_ids": ["idea-01"], "hook_idea_ids": [1]},
+            {"phase": "analyze", "hook_idea_ids": ["idea-01"]},
+            {"hook_idea_ids": ["idea-01"]},
+        ):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                bridge.validate_config(self.config(**overrides))
+
     def test_analyze_phase_reports_awaiting_approval(self):
         requests = []
         class Pipeline:

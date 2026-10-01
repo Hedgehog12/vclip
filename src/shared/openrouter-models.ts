@@ -1,4 +1,4 @@
-export type ModelTask = 'planning' | 'transcription'
+export type ModelTask = 'planning' | 'transcription' | 'image'
 
 export interface OpenRouterModel {
   id: string
@@ -14,6 +14,8 @@ export interface OpenRouterModel {
 export interface OpenRouterCatalog {
   planning: OpenRouterModel[]
   transcription: OpenRouterModel[]
+  /** Models that turn video frames and a prompt into an image, for AI thumbnails. */
+  image: OpenRouterModel[]
   fetchedAt: string
 }
 

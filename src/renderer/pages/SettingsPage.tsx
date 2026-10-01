@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowUpRight, BookA, Check, ChevronDown, Cpu, FolderOpen, Github, Info, KeyRound, Loader2, RefreshCw, ScrollText } from 'lucide-react'
+import { ArrowUpRight, BookA, Check, ChevronDown, Cpu, FolderOpen, Github, Image as ImageIcon, Info, KeyRound, Loader2, RefreshCw, RotateCcw, ScrollText } from 'lucide-react'
 import { useSettingsStore } from '../store/use-settings-store'
+import { useModelStore } from '../store/use-model-store'
+import { DEFAULT_THUMBNAIL_PROMPT, THUMBNAIL_PLACEHOLDERS } from '../../shared/thumbnail-prompt'
+import { ModelPicker } from '../components/ModelPicker'
 import { useApiKeyDrafts } from '../hooks/use-api-key-drafts'
 import { getApi } from '../lib/ipc'
 import { cn, errorMessage } from '../lib/utils'
@@ -17,11 +20,11 @@ import { Badge, StatusDot } from '../components/ui/Badge'
 import { IconTile } from '../components/ui/IconTile'
 import { Callout } from '../components/ui/Callout'
 
-type SectionId = 'keys' | 'vocabulary' | 'output' | 'system' | 'about'
+type SectionId = 'keys' | 'vocabulary' | 'thumbnails' | 'output' | 'system' | 'about'
 type SectionTone = 'success' | 'warning' | 'danger' | 'idle'
 
 export function SettingsPage(): React.JSX.Element {
-  const { outputDirectory, pythonPath, customVocabulary, openrouterConfigured, zernioConfigured, saving, save, toolStatus, toolError, checkTools, checkingTools } =
+  const { outputDirectory, pythonPath, customVocabulary, thumbnailPrompt, thumbnailModel, openrouterConfigured, zernioConfigured, saving, save, toolStatus, toolError, checkTools, checkingTools } =
     useSettingsStore()
   const keys = useApiKeyDrafts()
   const [isPackaged, setIsPackaged] = useState(true)
@@ -54,6 +57,7 @@ export function SettingsPage(): React.JSX.Element {
   const sections: { id: SectionId; label: string; icon: ReactNode; tone: SectionTone }[] = [
     { id: 'keys', label: 'API keys', icon: <KeyRound />, tone: keysMissing ? 'warning' : 'success' },
     { id: 'vocabulary', label: 'Vocabulary', icon: <BookA />, tone: 'idle' },
+    { id: 'thumbnails', label: 'Thumbnails', icon: <ImageIcon />, tone: 'idle' },
     { id: 'output', label: 'Output', icon: <FolderOpen />, tone: 'idle' },
     { id: 'system', label: 'System check', icon: <Cpu />, tone: !toolsChecked ? 'idle' : toolsMissing ? 'danger' : 'success' },
     { id: 'about', label: 'About', icon: <Info />, tone: 'idle' }
@@ -170,6 +174,20 @@ export function SettingsPage(): React.JSX.Element {
               action={vocabularyTerms > 0 && <Badge className="font-mono tabular">{vocabularyTerms} term{vocabularyTerms === 1 ? '' : 's'}</Badge>}
             />
             <VocabularyField value={customVocabulary} onCommit={(value) => commit({ customVocabulary: value })} />
+          </Section>
+
+          <Section id="thumbnails">
+            <PanelHeader
+              icon={<IconTile><ImageIcon /></IconTile>}
+              title="Thumbnails"
+              description="After rendering, approved clips with “Generate thumbnail” ticked get an AI thumbnail made from real frames of the clip."
+            />
+            <ThumbnailSettings
+              model={thumbnailModel}
+              prompt={thumbnailPrompt}
+              onModel={(value) => commit({ thumbnailModel: value })}
+              onPrompt={(value) => commit({ thumbnailPrompt: value })}
+            />
           </Section>
 
           <Section id="output">
@@ -407,6 +425,58 @@ function VocabularyField({ value, onCommit }: { value: string; onCommit: (value:
         onBlur={() => draft !== value && onCommit(draft)}
       />
       <p className="mt-2 px-1 text-xs text-ink-subtle">Up to five words per term. Applies to new transcriptions; generated metadata uses it right away.</p>
+    </div>
+  )
+}
+
+function ThumbnailSettings({ model, prompt, onModel, onPrompt }: {
+  model: string
+  prompt: string
+  onModel: (value: string) => void
+  onPrompt: (value: string) => void
+}): React.JSX.Element {
+  const { catalog, loading, error, load } = useModelStore()
+  const [draft, setDraft] = useState(prompt)
+  useEffect(() => setDraft(prompt), [prompt])
+  useEffect(() => { void load() }, [load])
+  const models = catalog?.image ?? []
+  const custom = prompt !== DEFAULT_THUMBNAIL_PROMPT
+  return (
+    <div className="mt-4 space-y-4">
+      <ModelPicker task="image" models={models} value={model} onChange={onModel} loading={loading} />
+      {error && (
+        <p role="alert" className="text-xs text-danger">
+          {error} <button className="underline underline-offset-2" onClick={() => void load(true)}>Retry</button>
+        </p>
+      )}
+      <Field
+        label="Thumbnail prompt"
+        hint={`Placeholders: ${THUMBNAIL_PLACEHOLDERS.map((name) => `{${name}}`).join(' ')}`}
+      >
+        <TextArea
+          rows={12}
+          value={draft}
+          maxLength={8000}
+          aria-label="Thumbnail prompt"
+          className="font-mono text-xs"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => draft !== prompt && onPrompt(draft)}
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-3 px-1">
+        <p className="flex-1 text-xs text-ink-subtle">
+          The default prompt follows 2026 thumbnail research: you as one big, expressive focal point, bold contrast, and 2–5 curiosity words that don’t repeat the title.
+        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<RotateCcw className="h-3.5 w-3.5" />}
+          disabled={!custom && draft === prompt}
+          onClick={() => { setDraft(DEFAULT_THUMBNAIL_PROMPT); onPrompt(DEFAULT_THUMBNAIL_PROMPT) }}
+        >
+          Reset to default
+        </Button>
+      </div>
     </div>
   )
 }

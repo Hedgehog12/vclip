@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { FolderOpen, ImageOff, ListPlus, Play, Send, TrendingUp, TriangleAlert } from 'lucide-react'
+import { FolderOpen, ImageOff, ListPlus, Loader2, Play, Send, Sparkles, TrendingUp, TriangleAlert, Trophy } from 'lucide-react'
 import { cn, formatTimecode, isMac, localFileUrl } from '../lib/utils'
 import { getApi } from '../lib/ipc'
 import { clipFilePath, loadThumbnail } from '../lib/thumbnails'
 import type { ClipArtifact } from '../store/use-job-store'
+import type { AiThumbnail } from '../../preload/index'
 import { Checkbox } from './ui/Checkbox'
+import { ClipEditDialog } from './ClipEditDialog'
 import { Badge } from './ui/Badge'
 import { Skeleton } from './ui/Skeleton'
 
@@ -28,8 +30,11 @@ interface ClipCardProps {
   /** Reports the thumbnail's aspect ratio so the grid can size to the output. */
   onAspect?: (ratio: number) => void
   /** Opens the post dialog for this clip. */
-  onPost?: () => void
+  /** Opens the post dialog; `latest` is the clip as just saved in the edit dialog. */
+  onPost?: (latest?: ClipArtifact) => void
   onAddToAutomation?: () => void
+  /** The title or description was edited in the clip's edit dialog. */
+  onEdited?: (clip: ClipArtifact) => void
 }
 
 export function ClipCard({
@@ -41,7 +46,8 @@ export function ClipCard({
   onToggleSelect,
   onAspect,
   onPost,
-  onAddToAutomation
+  onAddToAutomation,
+  onEdited
 }: ClipCardProps): React.JSX.Element {
   const filePath = clipFilePath(clip.s3_url)
   const [thumb, setThumb] = useState<string | null | undefined>(undefined)
@@ -49,6 +55,8 @@ export function ClipCard({
   const [hovering, setHovering] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [ai, setAi] = useState<AiThumbnail | null>(null)
+  const [editing, setEditing] = useState(false)
   const title = clip.summary || `Clip ${clip.clip_index + 1}`
   const score = (clip.virality_score * 10).toFixed(1)
   const clipVertical = aspect == null ? vertical : aspect < 1
@@ -70,6 +78,27 @@ export function ClipCard({
       cancelled = true
     }
   }, [filePath, clip.duration_ms])
+
+  useEffect(() => setAi(null), [filePath])
+  // The AI thumbnail, polled while it is being made.
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const check = (): void => {
+      getApi().thumbnails.aiStatus(filePath).then((state) => {
+        if (cancelled) return
+        setAi(state)
+        if (state?.status === 'pending') timer = setTimeout(check, 4000)
+      }).catch(() => {})
+    }
+    check()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [filePath, ai?.status === 'pending'])
+
+
 
   const openClip = async (): Promise<void> => {
     setActionError(null)
@@ -106,7 +135,15 @@ export function ClipCard({
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
       >
-        {thumb ? (
+        {ai?.status === 'ready' && ai.path ? (
+          <img
+            src={`${localFileUrl(ai.path)}?v=${encodeURIComponent(ai.updatedAt)}`}
+            alt=""
+            draggable={false}
+            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+            onError={() => setAi(null)}
+          />
+        ) : thumb ? (
           <img
             src={localFileUrl(thumb)}
             alt=""
@@ -141,21 +178,16 @@ export function ClipCard({
           />
         )}
 
-        {/* The media plays the clip, or picks it while clips are being selected (the checkbox is the labelled control then). */}
+        {/* The media opens the edit dialog, or picks the clip while clips are being selected (the checkbox is the labelled control then). */}
         <button
           type="button"
-          onClick={selecting ? onToggleSelect : () => { void openClip() }}
-          aria-label={`Play “${title}”`}
+          onClick={selecting ? onToggleSelect : () => setEditing(true)}
+          aria-label={`Edit “${title}”`}
+          title="Edit title, description and thumbnail"
           aria-hidden={selecting || undefined}
           tabIndex={selecting ? -1 : undefined}
-          className="absolute inset-0 flex items-center justify-center focus-visible:[outline-offset:-3px]"
-        >
-          {!selecting && (
-            <span className="glass-chip flex h-11 w-11 scale-90 items-center justify-center rounded-full text-white opacity-0 transition-[opacity,transform] duration-300 ease-spring group-focus-within:opacity-100 group-hover:scale-100 group-hover:opacity-100">
-              <Play className="ml-0.5 h-5 w-5" fill="currentColor" />
-            </span>
-          )}
-        </button>
+          className="absolute inset-0 cursor-pointer focus-visible:[outline-offset:-3px]"
+        />
 
         <div
           className={cn(
@@ -167,8 +199,12 @@ export function ClipCard({
         </div>
         <div className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1">
           {topPick && (
-            <span className="inline-flex h-5 items-center rounded-full bg-accent px-2 text-2xs font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35)]">
-              Top pick
+            <span
+              className="pointer-events-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35)]"
+              title="Top pick: the best-scoring clip of this run"
+              aria-label="Top pick"
+            >
+              <Trophy className="h-3 w-3" />
             </span>
           )}
           <span
@@ -179,14 +215,40 @@ export function ClipCard({
             {score}
           </span>
         </div>
-        <span className="glass-chip pointer-events-none absolute bottom-2 left-2 z-10 rounded-full px-1.5 py-px font-mono text-2xs tabular text-white/95">
-          {formatTimecode(clip.duration_ms)}
+        <span className="pointer-events-none absolute bottom-2 left-2 z-10 flex items-center gap-1">
+          <span className="glass-chip rounded-full px-1.5 py-px font-mono text-2xs tabular text-white/95">
+            {formatTimecode(clip.duration_ms)}
+          </span>
+          {ai?.status === 'pending' && (
+            <span className="glass-chip inline-flex items-center gap-1 rounded-full px-1.5 py-px text-2xs text-white/95">
+              <Loader2 className="h-3 w-3 animate-spin" /> Thumbnail
+            </span>
+          )}
+          {ai?.status === 'ready' && ai.error && (
+            <span className="glass-chip pointer-events-auto inline-flex items-center gap-1 rounded-full px-1.5 py-px text-2xs text-warning" title={`Regenerate failed: ${ai.error}`}>
+              <TriangleAlert className="h-3 w-3" /> Regenerate failed
+            </span>
+          )}
+          {ai?.status === 'ready' && !ai.error && (
+            <span className="glass-chip inline-flex items-center gap-1 rounded-full px-1.5 py-px text-2xs text-white/95" title={ai.model === 'custom' ? 'Your own thumbnail' : `AI thumbnail${ai.model ? ` · ${ai.model}` : ''}`}>
+              {ai.model === 'custom' ? 'Custom' : <><Sparkles className="h-3 w-3 text-brand-gold" /> AI</>}
+            </span>
+          )}
+          {ai?.status === 'failed' && (
+            <span className="glass-chip pointer-events-auto inline-flex items-center gap-1 rounded-full px-1.5 py-px text-2xs text-warning" title={ai.error ?? 'Thumbnail failed'}>
+              <TriangleAlert className="h-3 w-3" /> Thumbnail failed
+            </span>
+          )}
         </span>
         {!selecting && (
-          <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
-            {onPost && <MediaAction label={`Post “${title}”`} title="Post to social accounts" icon={<Send />} onClick={onPost} />}
-            {onAddToAutomation && <MediaAction label={`Add “${title}” to automation`} title="Add to automation" icon={<ListPlus />} onClick={onAddToAutomation} />}
-            <MediaAction label={isMac ? 'Show in Finder' : 'Show in folder'} icon={<FolderOpen />} onClick={() => { void showInFolder() }} />
+          <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1">
+            <div className="flex items-center gap-1 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+              {onPost && <MediaAction label={`Post “${title}”`} title="Post to social accounts" icon={<Send />} onClick={() => onPost()} />}
+              {onAddToAutomation && <MediaAction label={`Add “${title}” to automation`} title="Add to automation" icon={<ListPlus />} onClick={onAddToAutomation} />}
+              <MediaAction label={isMac ? 'Show in Finder' : 'Show in folder'} icon={<FolderOpen />} onClick={() => { void showInFolder() }} />
+            </div>
+            {/* Always visible: plays the clip in the system player. */}
+            <MediaAction label={`Play “${title}”`} title="Play" icon={<Play className="ml-px" fill="currentColor" />} onClick={() => { void openClip() }} />
           </div>
         )}
       </div>
@@ -214,6 +276,18 @@ export function ClipCard({
         )}
         {actionError && <p role="alert" className="mt-1.5 text-xs text-danger">{actionError}</p>}
       </div>
+      {editing && (
+        <ClipEditDialog
+          clip={clip}
+          vertical={clipVertical}
+          thumbnail={ai}
+          frame={thumb ?? null}
+          onThumbnail={setAi}
+          onSaved={(updated) => onEdited?.(updated)}
+          onPost={onPost}
+          onClose={() => setEditing(false)}
+        />
+      )}
     </article>
   )
 }

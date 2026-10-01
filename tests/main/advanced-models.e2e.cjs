@@ -31,7 +31,7 @@ test('Advanced models and export speed support keyboard selection, review and su
       ] })
     }
     ipcMain.removeHandler('settings:load')
-    ipcMain.handle('settings:load', () => ({ openrouterConfigured: true, zernioConfigured: false, outputDirectory: root, pythonPath: '', customVocabulary: '' }))
+    ipcMain.handle('settings:load', () => ({ openrouterConfigured: true, zernioConfigured: false, outputDirectory: root, pythonPath: '', customVocabulary: '', thumbnailPrompt: 'Prompt {title}', thumbnailModel: 'google/gemini-3.1-flash-image' }))
     ipcMain.removeHandler('system:checkTools')
     ipcMain.handle('system:checkTools', () => ({ python: true, pythonDeps: true, ffmpeg: true, ffmpegCaptions: true, ffprobe: true, ytdlp: true, engine: true, bridgeRunner: true }))
     ipcMain.removeHandler('job:start')

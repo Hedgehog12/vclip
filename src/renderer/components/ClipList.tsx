@@ -35,11 +35,13 @@ const MAX_POST_BATCH = 10
 const MAX_BANK_BATCH = 30
 
 function toPostable(clip: ClipArtifact): PostableClip {
-  return { path: clipFilePath(clip.s3_url), title: clip.summary || `Clip ${clip.clip_index + 1}`, tags: clip.tags, durationMs: clip.duration_ms }
+  return { path: clipFilePath(clip.s3_url), title: clip.summary || `Clip ${clip.clip_index + 1}`, description: clip.description ?? null, tags: clip.tags, youtubeCategory: clip.youtube_category ?? null, durationMs: clip.duration_ms }
 }
 
 export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, onNavigate }: ClipListProps): React.JSX.Element {
   const [sort, setSort] = useState<Sort>('score')
+  // Titles and descriptions edited in this view, until the output is reloaded.
+  const [edits, setEdits] = useState<Map<number, ClipArtifact>>(new Map())
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [exporting, setExporting] = useState(false)
   const [posting, setPosting] = useState<PostableClip[] | null>(null)
@@ -65,6 +67,7 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
   useEffect(() => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current)
     setSelected(new Set())
+    setEdits(new Map())
     setAspect(null)
     setPosting(null)
     setBankClips(null)
@@ -83,11 +86,11 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
   }, [output.clips])
 
   const clips = useMemo(() => {
-    const list = [...output.clips]
+    const list = output.clips.map((clip) => edits.get(clip.clip_index) ?? clip)
     return sort === 'score'
       ? list.sort((a, b) => b.virality_score - a.virality_score)
       : list.sort((a, b) => a.start_time_ms - b.start_time_ms)
-  }, [output.clips, sort])
+  }, [output.clips, sort, edits])
 
   const allSelected = selected.size > 0 && selected.size === clips.length
 
@@ -279,8 +282,9 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
               selecting={selected.size > 0}
               onToggleSelect={() => toggle(clip.clip_index)}
               onAspect={aspect == null ? setAspect : undefined}
-              onPost={() => setPosting([toPostable(clip)])}
+              onPost={(latest) => setPosting([toPostable(latest ?? clip)])}
               onAddToAutomation={outputDir ? () => setBankClips([clip.clip_index]) : undefined}
+              onEdited={(updated) => setEdits((current) => new Map(current).set(updated.clip_index, updated))}
             />
           ))}
         </div>

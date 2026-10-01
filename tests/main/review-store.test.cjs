@@ -46,6 +46,10 @@ function idea(n, extra = {}) {
   }
 }
 
+const hookAt = (n, from, to, text = 'Never let it write for you.') => ({
+  hook_start_ms: n * 60000 + from, hook_end_ms: n * 60000 + to, hook_text: text
+})
+
 function writeReview(run, ideas, source = { path: path.join(run, 'source.mp4'), downloaded: true, size_bytes: 11 }) {
   fs.writeFileSync(path.join(run, 'review.json'), JSON.stringify({
     version: 1, job_id: ID, source, metadata: { title: 'My stream' }, recommended_count: 2, ideas
@@ -144,6 +148,7 @@ test('storage usage splits each run into stream, clips and other files; delete r
     fs.writeFileSync(path.join(run, 'clip_00.mp4'), Buffer.alloc(300))
     fs.writeFileSync(path.join(run, 'clip_00.srt'), Buffer.alloc(20))
     fs.writeFileSync(path.join(run, 'clip_00.youtube.txt'), Buffer.alloc(5))
+    fs.writeFileSync(path.join(run, 'clip_00.thumbnail.png'), Buffer.alloc(100))
     fs.writeFileSync(path.join(run, 'transcript.json'), Buffer.alloc(50))
     fs.mkdirSync(path.join(root, 'not-a-job'))
     const outside = path.join(os.tmpdir(), `vlasiichukclip-outside-${process.pid}.mp4`)
@@ -155,7 +160,7 @@ test('storage usage splits each run into stream, clips and other files; delete r
       assert.equal(usage.runs.length, 1)
       const [runUsage] = usage.runs
       assert.equal(runUsage.sourceBytes, 1000)
-      assert.equal(runUsage.clipBytes, 325)
+      assert.equal(runUsage.clipBytes, 425, 'AI thumbnails count as clip files')
       assert.ok(runUsage.otherBytes >= 50 && runUsage.otherBytes < 99999, 'links are not followed')
       assert.equal(usage.sourceBytes, 1000)
 
@@ -181,5 +186,25 @@ test('a user file is never counted or deleted as a kept stream', () => {
     assert.equal(runUsage.sourceIsUserFile, true)
     assert.equal(reviewStore.deleteKeptSource(root, ID), false)
     assert.equal(fs.existsSync(mine), true)
+  } finally { cleanup() }
+})
+
+test('an idea offers its hook only when the hook lies inside the clip and has words', () => {
+  const { root, run, cleanup } = library()
+  try {
+    runHistory.createRunRecord(root, ID, 'https://example.com/v', { videoUrl: 'https://example.com/v' })
+    runHistory.finishRunRecord(root, ID, 'awaiting_approval')
+    writeReview(run, [
+      idea(1, hookAt(1, 20000, 24500)),
+      idea(2, hookAt(2, 20000, 24500, '   ')),
+      idea(3, hookAt(3, 40000, 50000)),
+      idea(4, { hook_start_ms: 4 * 60000 + 10000, hook_end_ms: 4 * 60000 + 9000, hook_text: 'Backwards.' }),
+      idea(5, { hook_start_ms: 'soon', hook_end_ms: null, hook_text: 'Not numbers.' }),
+      idea(6)
+    ])
+    const review = reviewStore.buildJobReview(root, ID, false)
+    const byId = Object.fromEntries(review.ideas.map((i) => [i.id, i.hook]))
+    assert.deepEqual({ ...byId['idea-01'] }, { startMs: 80000, endMs: 84500, text: 'Never let it write for you.' })
+    for (const id of ['idea-02', 'idea-03', 'idea-04', 'idea-05', 'idea-06']) assert.equal(byId[id], null, id)
   } finally { cleanup() }
 })

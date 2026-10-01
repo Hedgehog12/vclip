@@ -20,6 +20,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import asdict, dataclass
+from dataclasses import replace as dataclass_replace
 from dataclasses import fields as dataclass_fields
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -27,6 +28,8 @@ from typing import Any, Callable, Optional
 from clip_engine.config import CaptionStyle, LayoutStyle, get_settings, is_longform, resolve_clip_duration_bounds
 from clip_engine.services.video_speed import validate_video_speed
 from clip_engine.error_policy import safe_failure_code, safe_processing_error
+from clip_engine.services.clip_editor import Pacing
+from clip_engine.services.cold_open import merge_srt, shift_chapters
 from clip_engine.services.intelligence_planner import (
     ClipPlanResponse,
     ClipPlanSegment,
@@ -125,6 +128,8 @@ class ClippingJobRequest:
     video_speed: float = 1.0
     phase: str = "full"
     approved_idea_ids: Optional[list[str]] = None
+    # Approved ideas whose clip opens with its hook line, played first (cold open).
+    hook_idea_ids: Optional[list[str]] = None
 
     def __post_init__(self):
         validate_video_speed(self.video_speed)
@@ -132,6 +137,8 @@ class ClippingJobRequest:
             raise ValueError("Invalid job phase")
         if self.phase == "render" and not self.approved_idea_ids:
             raise ValueError("Render phase needs approved ideas")
+        if self.hook_idea_ids and not set(self.hook_idea_ids) <= set(self.approved_idea_ids or []):
+            raise ValueError("Cold opens are only possible for approved ideas")
         if self.job_id is None:
             self.job_id = str(uuid.uuid4())
         if not isinstance(self.job_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", self.job_id):
@@ -495,6 +502,13 @@ class AIClippingPipeline:
                     )
 
                     render_result = await self.rendering_service.render_clip(render_request)
+                    if (
+                        segment.hook_start_ms is not None and segment.hook_end_ms is not None
+                        and segment.idea_id in (request.hook_idea_ids or ())
+                    ):
+                        render_result = await self._add_cold_open(
+                            render_request, render_result, segment, transcription_result.segments, longform,
+                        )
                     segment.layout_type = render_result.layout_type
                     segment.render_fallback = render_result.render_fallback
                     segment.output_chapters = render_result.chapters
@@ -1169,6 +1183,7 @@ class AIClippingPipeline:
                 chapters=self._chapter_dicts(segment),
                 subtitle_url=subtitle_url,
                 idea_id=segment.idea_id,
+                youtube_category=segment.youtube_category,
             ))
 
         return artifacts
@@ -1200,6 +1215,75 @@ class AIClippingPipeline:
                 f.write("\n".join(lines).strip() + "\n")
         except OSError as e:
             logger.warning(f"Could not write upload notes: {e}")
+
+    async def _add_cold_open(
+        self,
+        body_request: RenderRequest,
+        body: RenderResult,
+        segment: ClipPlanSegment,
+        transcript: list[TranscriptSegment],
+        longform: bool,
+    ) -> RenderResult:
+        """Render the hook line and put it in front of the finished clip.
+
+        The hook is a bonus: if any step fails, the clip stays exactly as it
+        was rendered and the job carries on.
+        """
+        base, extension = os.path.splitext(body_request.output_path)
+        hook_path, joined_path = f"{base}_hook{extension}", f"{base}_joined{extension}"
+        created = [hook_path, joined_path]
+        try:
+            hook_request = dataclass_replace(
+                body_request,
+                output_path=hook_path,
+                start_time_ms=segment.hook_start_ms,
+                end_time_ms=segment.hook_end_ms,
+                transcript_segments=self._filter_transcript_for_clip(transcript, segment.hook_start_ms, segment.hook_end_ms),
+                # Natural timing keeps the chosen line whole. A landscape title card
+                # belongs to the start of the clip itself; a vertical one stays on screen.
+                pacing=Pacing.NATURAL,
+                title_text=None if longform else body_request.title_text,
+                skip_ranges_ms=[],
+                chapters=[],
+            )
+            hook = await self.rendering_service.render_clip(hook_request)
+            await self.rendering_service.join_cold_open(
+                hook.output_path, body.output_path, joined_path,
+                fps=body.fps, size=(body.output_width, body.output_height),
+                hook_ms=hook.duration_ms, body_ms=body.duration_ms,
+            )
+            subtitle_path = body.subtitle_path
+            if body.subtitle_path and hook.subtitle_path:
+                try:
+                    with open(hook.subtitle_path, encoding="utf-8") as hook_file, open(body.subtitle_path, encoding="utf-8") as body_file:
+                        merged = merge_srt(hook_file.read(), body_file.read(), hook.duration_ms)
+                    with open(body.subtitle_path, "w", encoding="utf-8") as out:
+                        out.write(merged)
+                except OSError as error:
+                    logger.warning(f"Could not merge the cold open subtitles: {error}")
+            os.replace(joined_path, body.output_path)
+            created.remove(joined_path)
+            logger.info(
+                f"Cold open added: {hook.duration_ms / 1000:.1f}s from {segment.hook_start_ms}ms "
+                f"({segment.hook_text!r})"
+            )
+            return dataclass_replace(
+                body,
+                file_size_bytes=os.path.getsize(body.output_path),
+                duration_ms=body.duration_ms + hook.duration_ms,
+                chapters=shift_chapters(body.chapters, hook.duration_ms),
+                subtitle_path=subtitle_path,
+                layout_cost_usd=body.layout_cost_usd + hook.layout_cost_usd,
+            )
+        except Exception as error:
+            logger.warning(f"Cold open skipped, the clip keeps its normal start: {error}", exc_info=True)
+            return body
+        finally:
+            for path in created:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
     def _filter_transcript_for_clip(
         self,

@@ -18,7 +18,7 @@ export function ModelPicker({ task, models, value, onChange, loading }: {
   const [active, setActive] = useState(-1)
   const selected = models.find((model) => model.id === value)
   const matches = useMemo(() => searchModels(models, query), [models, query])
-  const label = task === 'planning' ? 'Clip planning model' : 'Transcription model'
+  const label = task === 'planning' ? 'Clip planning model' : task === 'image' ? 'Thumbnail model' : 'Transcription model'
   const choose = (model: OpenRouterModel): void => {
     if (model.unavailableReason) return
     onChange(model.id)
@@ -82,6 +82,7 @@ export function ModelPicker({ task, models, value, onChange, loading }: {
         {selected?.unavailableReason && <p role="alert" className="text-danger">{selected.unavailableReason}</p>}
         {price && <p>{price}. Provider prices may vary.</p>}
         {selected && task === 'planning' && <p>{selected.contextLength ? `${selected.contextLength.toLocaleString()} token context · ` : ''}{selected.supportsImages ? 'Supports silent-video planning' : 'Requires a video with speech'}</p>}
+        {task === 'image' && <p>Gets three frames of your clip and the prompt below. Price per image varies by model; see the model on OpenRouter.</p>}
         {task === 'transcription' && <p>Word timestamps are required for captions and clip timing. Support varies by model and provider; an unsupported response stops the run.</p>}
       </div>
     </Field>

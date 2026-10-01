@@ -133,6 +133,7 @@ class RenderResult:
     subtitle_path: Optional[str] = None
     output_width: int = 0
     output_height: int = 0
+    fps: str = "30"
 
 
 class RenderingService:
@@ -354,7 +355,54 @@ class RenderingService:
             subtitle_path=subtitle_path,
             output_width=target_width,
             output_height=target_height,
+            fps=fps,
         )
+
+    async def join_cold_open(
+        self,
+        hook_path: str,
+        body_path: str,
+        output_path: str,
+        *,
+        fps: str,
+        size: tuple[int, int],
+        hook_ms: int,
+        body_ms: int,
+    ) -> None:
+        """Play the hook, then the clip, as one file.
+
+        Both parts went through the same render, so they share size and frame
+        rate. They are decoded and encoded together once instead of copied: a
+        stream copy leaves a gap in the AAC clock at the join, which the export
+        timing check rejects.
+        """
+        with_audio = await self._has_audio(body_path) and await self._has_audio(hook_path)
+        if with_audio:
+            graph = (
+                f"[0:a]{AUDIO_FORMAT}[a0];[1:a]{AUDIO_FORMAT}[a1];"
+                "[0:v][a0][1:v][a1]concat=n=2:v=1:a=1[out][aout]"
+            )
+        else:
+            graph = "[0:v][1:v]concat=n=2:v=1:a=0[out]"
+        cmd = [
+            "ffmpeg", "-nostdin", "-nostats", "-y",
+            *MEDIA_INPUT_OPTIONS, "-i", hook_path,
+            *MEDIA_INPUT_OPTIONS, "-i", body_path,
+            "-filter_complex", graph, "-map", "[out]",
+            *self._video_codec_args(size[0], size[1], fps),
+            "-pix_fmt", "yuv420p", "-r", fps, "-movflags", "+faststart",
+        ]
+        cmd.extend(["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"] if with_audio else ["-an"])
+        cmd.append(output_path)
+        try:
+            await self._run_cmd(cmd)
+            await self._validate_output_timing(output_path, hook_ms + body_ms, fps, with_audio)
+        except Exception:
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def _window_skips(request: RenderRequest, window_start_ms: int, window_ms: int) -> list[tuple[int, int]]:

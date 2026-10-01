@@ -33,7 +33,13 @@ import {
   type TikTokCreatorInfo,
   type TikTokPostOptions,
   type YouTubePostOptions,
-  type YouTubeVisibility
+  type YouTubeVisibility,
+  parseTagList,
+  youtubeTagsFrom,
+  YOUTUBE_TAGS_MAX_CHARS,
+  YOUTUBE_CATEGORIES,
+  DEFAULT_YOUTUBE_CATEGORY,
+  isYouTubeCategory
 } from '../../shared/zernio-posts'
 import { PlatformIcon, platformName } from './PlatformIcon'
 import { Button } from './ui/Button'
@@ -48,11 +54,16 @@ import { Dialog, DialogFooter } from './ui/Dialog'
 import { IconTile } from './ui/IconTile'
 import { Segmented } from './ui/Segmented'
 import type { Page } from './Sidebar'
+import type { AiThumbnail } from '../../preload/index'
 
 export interface PostableClip {
   path: string
   title: string
+  /** The clip's description (editable in the Library); starts the caption. */
+  description?: string | null
   tags: string[]
+  /** YouTube category id the AI chose for this clip. */
+  youtubeCategory?: string | null
   durationMs: number
 }
 
@@ -64,6 +75,36 @@ interface PostDialogProps {
 }
 
 type Phase = 'editing' | 'sending' | 'done'
+
+/** The AI's category for the clip, else YouTube's default. */
+const CATEGORY_STORAGE_KEY = 'vlasiichukclip.youtube.defaultCategory'
+
+/** The category the user chose as their default, if any (kept on this computer). */
+function savedCategory(): string | null {
+  try {
+    const value = localStorage.getItem(CATEGORY_STORAGE_KEY)
+    return isYouTubeCategory(value) ? value : null
+  } catch { return null }
+}
+
+function saveCategory(categoryId: string): boolean {
+  try {
+    localStorage.setItem(CATEGORY_STORAGE_KEY, categoryId)
+    return true
+  } catch { return false }
+}
+
+/** The user's default category wins; otherwise the AI's choice for the clip, else YouTube's default. */
+function categoryFor(clip: Pick<PostableClip, 'youtubeCategory'>): string {
+  return savedCategory() ?? (isYouTubeCategory(clip.youtubeCategory) ? clip.youtubeCategory : DEFAULT_YOUTUBE_CATEGORY)
+}
+
+/** Title, then the description, then hashtags (unless the description already ends with its own). */
+export function captionFor(clip: Pick<PostableClip, 'title' | 'description' | 'tags'>): string {
+  const description = clip.description?.trim()
+  if (description && /(^|\s)#[^\s#]+/u.test(description)) return `${clip.title.trim()}\n\n${description}`
+  return defaultCaption(description ? `${clip.title.trim()}\n\n${description}` : clip.title, clip.tags)
+}
 type CreatorInfoState = TikTokCreatorInfo | { error: string } | 'loading'
 
 /** Past this many accounts the picker gets a search box. */
@@ -142,8 +183,13 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
   // Per clip.
   const [media, setMedia] = useState<ClipMediaInfo | null>(null)
   const [thumb, setThumb] = useState<string | null>(null)
-  const [caption, setCaption] = useState(() => defaultCaption(clip.title, clip.tags))
-  const [youtube, setYoutube] = useState<YouTubePostOptions>(() => ({ title: youtubeTitleFor(clip.title) || 'Untitled clip', visibility: 'public', madeForKids: false }))
+  const [caption, setCaption] = useState(() => captionFor(clip))
+  // The clip's own thumbnail, sent as the Instagram cover and YouTube thumbnail.
+  const [cover, setCover] = useState<AiThumbnail | null>(null)
+  const [useCover, setUseCover] = useState(true)
+  const [youtube, setYoutube] = useState<YouTubePostOptions>(() => ({ title: youtubeTitleFor(clip.title) || 'Untitled clip', visibility: 'public', madeForKids: false, categoryId: categoryFor(clip) }))
+  // YouTube keyword tags, edited as text: the clip's AI tags to start with.
+  const [youtubeTags, setYoutubeTags] = useState(() => youtubeTagsFrom(clip.tags).join(', '))
   const [phase, setPhase] = useState<Phase>('editing')
   const [progress, setProgress] = useState<PostProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -183,6 +229,8 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
       .then((info) => { if (!cancelled) setMedia(info) })
       .catch(() => { if (!cancelled) setMedia({ durationMs: clip.durationMs, width: null, height: null, sizeBytes: 0 }) })
     loadThumbnail(clip.path, clip.durationMs > 0 ? clip.durationMs / 2000 : undefined).then((path) => { if (!cancelled) setThumb(path) })
+    setCover(null)
+    getApi().thumbnails.aiStatus(clip.path).then((state) => { if (!cancelled) setCover(state?.status === 'ready' && state.path ? state : null) }).catch(() => {})
     return () => { cancelled = true }
   }, [clip.path, clip.durationMs])
 
@@ -336,11 +384,12 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
         clipTitle: clip.title,
         durationMs: clip.durationMs,
         caption,
+        thumbnailPath: useCover && cover?.path ? cover.path : null,
         targets: selectedAccounts.map((a) => ({ platform: a.platform as ZernioPlatform, accountId: a.id })),
         timing: mode === 'now' ? { mode: 'now' } : { mode: 'schedule', scheduledFor: new Date(scheduledAt).toISOString(), timezone: localTimeZone() },
         options: {
           ...(has('tiktok') ? { tiktok } : {}),
-          ...(has('youtube') ? { youtube: { ...youtube, title: youtube.title.trim() } } : {}),
+          ...(has('youtube') ? { youtube: { ...youtube, title: youtube.title.trim(), ...(youtubeTagsFrom(parseTagList(youtubeTags)).length ? { tags: youtubeTagsFrom(parseTagList(youtubeTags)) } : {}) } } : {}),
           ...(has('instagram') ? { instagram: { shareToFeed } } : {}),
           ...(has('facebook') ? { facebook: { format: fbFormat } } : {})
         }
@@ -365,8 +414,10 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
     if (!next) return
     setIndex(index + 1)
     setAttemptId(newAttemptId())
-    setCaption(defaultCaption(next.title, next.tags))
-    setYoutube((y) => ({ ...y, title: youtubeTitleFor(next.title) || 'Untitled clip' }))
+    setCaption(captionFor(next))
+    setUseCover(true)
+    setYoutube((y) => ({ ...y, title: youtubeTitleFor(next.title) || 'Untitled clip', categoryId: categoryFor(next) }))
+    setYoutubeTags(youtubeTagsFrom(next.tags).join(', '))
     // TikTok's consent covers one piece of content.
     setTiktok((t) => ({ ...t, consent: false }))
     setFacebookFormat(null)
@@ -458,7 +509,7 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
       />
     )
   } else if (phase === 'done' && result) {
-    body = <ResultView result={result} />
+    body = <ResultView result={result} shortsThumbnail={useCover && cover?.path && (media ? (media.height ?? 0) > (media.width ?? 0) : true) ? cover.path : null} />
   } else {
     body = (
       <div className={cn('space-y-5 px-4 py-4 transition-opacity duration-200', sending && 'pointer-events-none opacity-60')} aria-busy={sending}>
@@ -486,9 +537,20 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
 
         <CaptionField caption={caption} onChange={setCaption} problems={captionProblems} />
 
+        {cover?.path && (
+          <CoverField
+            path={cover.path}
+            version={cover.updatedAt}
+            checked={useCover}
+            onChange={setUseCover}
+            platforms={platforms}
+            vertical={media ? (media.height ?? 0) > (media.width ?? 0) : true}
+          />
+        )}
+
         {has('youtube') && (
           <PlatformSection platform="youtube" notes={clipCheck('youtube')?.notes}>
-            <YouTubeFields value={youtube} onChange={setYoutube} problem={youtubeProblem} />
+            <YouTubeFields value={youtube} onChange={setYoutube} problem={youtubeProblem} tags={youtubeTags} onTags={setYoutubeTags} />
           </PlatformSection>
         )}
 
@@ -553,7 +615,7 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
   return (
     <Dialog ref={dialogRef} aria-labelledby={titleId} onBackdropMouseDown={close} panelClassName="max-w-[640px]">
       <div className="relative flex items-start gap-3 border-b border-white/[0.07] px-4 py-4">
-        <ClipPreview path={clip.path} thumb={thumb} vertical={media ? (media.height ?? 0) > (media.width ?? 0) : true} />
+        <ClipPreview path={clip.path} thumb={useCover && cover?.path ? cover.path : thumb} vertical={media ? (media.height ?? 0) > (media.width ?? 0) : true} />
         <div className="relative min-w-0 flex-1 pt-0.5">
           <p className="eyebrow">{clips.length > 1 ? `Post clip ${index + 1} of ${clips.length}` : 'Post clip'}</p>
           <h2 id={titleId} className="mt-1.5 line-clamp-2 text-lg font-semibold leading-snug tracking-[-0.01em] text-ink" title={clip.title}>
@@ -651,6 +713,40 @@ function SetupPrompt({ title, description, action }: { title: string; descriptio
 }
 
 /** The clip itself, playable in place: TikTok asks that people can preview what they post. */
+/** The clip's thumbnail as the post cover, where the platform accepts one. */
+function CoverField({ path, version, checked, onChange, platforms, vertical }: {
+  path: string
+  version: string
+  checked: boolean
+  onChange: (value: boolean) => void
+  platforms: ZernioPlatform[]
+  vertical: boolean
+}): React.JSX.Element {
+  const covered = platforms.filter((p) => p === 'instagram' || (p === 'youtube' && !vertical))
+  const shorts = platforms.includes('youtube') && vertical
+  const note = platforms.length === 0 ? 'Choose an account to see where it is used.'
+    : covered.length === 0 && !shorts ? 'Not used: only Instagram Reels and YouTube videos accept a cover.'
+    : `${covered.length ? `Used as the cover on ${covered.map((p) => platformName(p)).join(' and ')}. ` : ''}${
+      shorts ? 'YouTube Shorts: the posting service can’t set it yet. After posting, add it in YouTube Studio → Details → Thumbnail → Upload file. ' : ''
+    }Other platforms pick their own frame.`
+  return (
+    <Section title="Thumbnail">
+      <div className="flex items-center gap-3">
+        <img src={`${localFileUrl(path)}?v=${encodeURIComponent(version)}`} alt="Clip thumbnail"
+          className={cn('shrink-0 rounded-lg object-cover ring-1 ring-white/[0.12]', vertical ? 'h-[96px] w-[54px]' : 'h-[54px] w-[96px]', !checked && 'opacity-40')} />
+        <div className="min-w-0 flex-1">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-ink">
+            <Checkbox checked={checked} onChange={onChange} label="Use thumbnail" />
+            <span aria-hidden>Use thumbnail</span>
+          </label>
+          <p className="mt-1 text-xs text-ink-subtle">{note}</p>
+          <p className="mt-0.5 text-2xs text-ink-faint">Change it with the pencil on the clip in the Library.</p>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
 function ClipPreview({ path, thumb, vertical }: { path: string; thumb: string | null; vertical: boolean }): React.JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
@@ -790,8 +886,18 @@ function SwitchRow({ checked, onChange, label, description, disabled }: { checke
   )
 }
 
-function YouTubeFields({ value, onChange, problem }: { value: YouTubePostOptions; onChange: (value: YouTubePostOptions) => void; problem: string | null }): React.JSX.Element {
+function YouTubeFields({ value, onChange, problem, tags, onTags }: {
+  value: YouTubePostOptions
+  onChange: (value: YouTubePostOptions) => void
+  problem: string | null
+  tags: string
+  onTags: (value: string) => void
+}): React.JSX.Element {
   const id = useId()
+  const [defaultCategory, setDefaultCategory] = useState(() => savedCategory() ?? DEFAULT_YOUTUBE_CATEGORY)
+  const category = value.categoryId ?? DEFAULT_YOUTUBE_CATEGORY
+  const kept = youtubeTagsFrom(parseTagList(tags))
+  const typed = parseTagList(tags).filter((tag) => tag.trim()).length
   const length = [...value.title.trim()].length
   return (
     <>
@@ -803,6 +909,35 @@ function YouTubeFields({ value, onChange, problem }: { value: YouTubePostOptions
         <TextInput id={id} value={value.title} onChange={(e) => onChange({ ...value, title: e.target.value })} aria-invalid={Boolean(problem)} />
         {problem && <p role="alert" className="mt-2 text-xs text-danger">{problem}</p>}
         <p className="mt-2 text-xs text-ink-subtle">The caption becomes the video description.</p>
+      </div>
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <label htmlFor={`${id}-tags`} className="text-sm font-medium text-ink">Tags</label>
+          <span className="font-mono text-2xs tabular text-ink-subtle">{kept.join(',').length}/{YOUTUBE_TAGS_MAX_CHARS}</span>
+        </div>
+        <TextInput id={`${id}-tags`} value={tags} onChange={(e) => onTags(e.target.value)} placeholder="claude code, ai coding, commit messages" />
+        <p className="mt-2 text-xs text-ink-subtle">
+          Search keywords, separated by commas. They help YouTube show the video to people looking for this topic.
+          {typed > kept.length && ` Only the first ${kept.length} fit YouTube's limit; the rest are left out.`}
+        </p>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={`${id}-category`} className="text-sm font-medium text-ink">Category</label>
+        <span className="ml-auto" />
+        {category !== defaultCategory && (
+          <Button size="sm" variant="ghost" title="Use this category for every YouTube post from now on"
+            onClick={() => { if (saveCategory(category)) setDefaultCategory(category) }}>
+            Set as default
+          </Button>
+        )}
+        <select
+          id={`${id}-category`}
+          value={category}
+          onChange={(e) => onChange({ ...value, categoryId: e.target.value })}
+          className="h-8 rounded-full bg-white/[0.06] px-3 text-sm text-ink shadow-[inset_0_0_0_1px_rgb(255_255_255/0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {YOUTUBE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+        </select>
       </div>
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium text-ink">Visibility</span>
@@ -1210,7 +1345,44 @@ const RESULT_TITLES: Record<PostClipResult['outcome'], string> = {
   duplicate: 'Already posted'
 }
 
-function ResultView({ result }: { result: PostClipResult }): React.JSX.Element {
+/**
+ * Zernio drops custom thumbnails for YouTube Shorts, so the user sets it in
+ * YouTube Studio: open the Short's edit page and the folder with the picture.
+ */
+function ShortsThumbnailHelp({ postId, targetIndex, thumbnail }: { postId: string; targetIndex: number; thumbnail: string }): React.JSX.Element {
+  const [error, setError] = useState<string | null>(null)
+  const run = (action: () => Promise<unknown>, fallback: string): void => {
+    setError(null)
+    action().catch((err) => setError(errorMessage(err, fallback)))
+  }
+  return (
+    <div className="mt-2.5 rounded-xl bg-warning/[0.07] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgb(var(--warning)/0.2)]">
+      <p className="text-xs font-medium text-ink">Set the thumbnail in YouTube Studio</p>
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+        YouTube published this as a Short, and the posting service can’t set Shorts thumbnails yet.
+        Open the Short in YouTube Studio, then Thumbnail → Upload file, and pick the picture from the folder.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Button size="sm" variant="primary" trailingIcon={<ArrowUpRight className="h-3.5 w-3.5" />}
+          onClick={() => run(() => getApi().zernio.posts.openStudio(postId, targetIndex), 'Could not open YouTube Studio.')}>
+          Open in YouTube Studio
+        </Button>
+        <Button size="sm" onClick={() => run(async () => {
+          if (!await getApi().shell.showItemInFolder(thumbnail)) throw new Error('The thumbnail file is no longer there.')
+        }, 'Could not show the thumbnail file.')}>
+          Show thumbnail file
+        </Button>
+      </div>
+      {error && <p role="alert" className="mt-1.5 text-xs text-danger">{error}</p>}
+    </div>
+  )
+}
+
+function ResultView({ result, shortsThumbnail }: {
+  result: PostClipResult
+  /** The thumbnail of a vertical clip: YouTube Shorts need it set by hand. */
+  shortsThumbnail: string | null
+}): React.JSX.Element {
   const failed = result.outcome === 'failed' || result.outcome === 'partial' || result.outcome === 'duplicate'
   const post = result.post
   const inboxOnly = result.outcome === 'published' && Boolean(post?.targets.every((t) => t.inbox))
@@ -1249,6 +1421,9 @@ function ResultView({ result }: { result: PostClipResult }): React.JSX.Element {
                   )}
                 </div>
                 {target.error && <p className="mt-1.5 pl-7 text-xs text-danger" data-selectable>{target.error}</p>}
+                {target.platform === 'youtube' && target.url && shortsThumbnail && (
+                  <ShortsThumbnailHelp postId={post.id} targetIndex={i} thumbnail={shortsThumbnail} />
+                )}
               </li>
             )
           })}

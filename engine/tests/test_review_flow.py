@@ -68,7 +68,10 @@ def env(monkeypatch, tmp_path):
             segments = [
                 ClipPlanSegment(i * 60_000, i * 60_000 + 30_000, 0.9 - i * 0.1, summary=f"Idea {i}",
                                 pitch=f"Pitch {i}.", scores={"hook": 9 - i}, idea_id=f"idea-0{i + 1}",
-                                rank=i + 1, recommended=i < 2)
+                                rank=i + 1, recommended=i < 2,
+                                # Idea 2 has a cold open: the line at 70-74 s inside its window.
+                                hook_start_ms=70_000 if i == 1 else None, hook_end_ms=74_000 if i == 1 else None,
+                                hook_text="line7 end7." if i == 1 else None)
                 for i in range(4)
             ]
             return ClipPlanResponse(segments=segments, total_clips=4, recommended_count=2,
@@ -177,3 +180,78 @@ def test_review_errors_are_exposed_as_fixed_messages():
     assert safe_processing_error(error) == "The source video for this job is no longer available"
     assert safe_failure_code(error) == "review.unavailable"
     assert safe_processing_error(ReviewStateError("/private/path leaked")) == "Processing failed"
+
+
+def cold_open_pipeline(make_pipeline, monkeypatch, *, fail=False):
+    pipeline = make_pipeline()
+    joins = []
+
+    async def join(hook_path, body_path, output_path, **kwargs):
+        joins.append({"hook": hook_path, "body": body_path, **kwargs})
+        if fail:
+            raise RuntimeError("join failed")
+        open(output_path, "wb").write(b"hook+mp4")
+
+    monkeypatch.setattr(pipeline.rendering_service, "join_cold_open", join)
+    return pipeline, joins
+
+
+def test_approved_cold_open_renders_the_hook_and_puts_it_in_front(env, monkeypatch):
+    make_pipeline, calls, tmp = env
+    run(make_pipeline(), phase="analyze")
+    review = json.loads((tmp / "out" / "job1" / "review.json").read_text())
+    idea = review["ideas"][1]
+    assert (idea["hook_start_ms"], idea["hook_end_ms"], idea["hook_text"]) == (70_000, 74_000, "line7 end7.")
+
+    requests = []
+    pipeline, joins = cold_open_pipeline(make_pipeline, monkeypatch)
+    original = pipeline.rendering_service.render_clip
+
+    async def spy(request):
+        requests.append(request)
+        return await original(request)
+
+    monkeypatch.setattr(pipeline.rendering_service, "render_clip", spy)
+    result = run(pipeline, phase="render", approved_idea_ids=["idea-02", "idea-04"], hook_idea_ids=["idea-02"])
+
+    assert result.status == JobStatus.COMPLETED, result.error
+    assert sorted(calls["render"]) == [60_000, 70_000, 180_000], "idea-02 twice (clip and hook), idea-04 once"
+    hook_request = next(r for r in requests if r.start_time_ms == 70_000)
+    assert (hook_request.end_time_ms, hook_request.pacing, hook_request.skip_ranges_ms, hook_request.chapters) == (74_000, "natural", [], [])
+    assert hook_request.title_text == "Idea 1", "a vertical title stays on screen through the hook"
+    assert [t.start_time_ms for t in hook_request.transcript_segments] == [70_000], "captions come from the hook's own words"
+    assert len(joins) == 1 and joins[0]["hook_ms"] == 30_000 and joins[0]["body_ms"] == 30_000
+    clips = {c.idea_id: c for c in result.output.clips}
+    assert clips["idea-02"].duration_ms == 60_000, "the clip is now hook plus clip"
+    assert clips["idea-04"].duration_ms == 30_000
+    assert (tmp / "out" / "job1" / f"clip_{clips['idea-02'].clip_index:02d}.mp4").read_bytes() == b"hook+mp4"
+    assert (tmp / "out" / "job1" / f"clip_{clips['idea-04'].clip_index:02d}.mp4").read_bytes() == b"mp4"
+
+
+def test_a_cold_open_is_only_made_for_ideas_the_user_ticked(env, monkeypatch):
+    make_pipeline, calls, _ = env
+    run(make_pipeline(), phase="analyze")
+    pipeline, joins = cold_open_pipeline(make_pipeline, monkeypatch)
+    result = run(pipeline, phase="render", approved_idea_ids=["idea-02"])
+    assert result.status == JobStatus.COMPLETED, result.error
+    assert calls["render"] == [60_000] and joins == []
+    assert result.output.clips[0].duration_ms == 30_000
+
+
+def test_a_failed_cold_open_keeps_the_clip_as_rendered(env, monkeypatch):
+    make_pipeline, calls, tmp = env
+    run(make_pipeline(), phase="analyze")
+    pipeline, joins = cold_open_pipeline(make_pipeline, monkeypatch, fail=True)
+    result = run(pipeline, phase="render", approved_idea_ids=["idea-02"], hook_idea_ids=["idea-02"])
+    assert result.status == JobStatus.COMPLETED, result.error
+    assert len(joins) == 1
+    (clip,) = result.output.clips
+    assert clip.duration_ms == 30_000
+    run_dir = tmp / "out" / "job1"
+    assert (run_dir / "clip_00.mp4").read_bytes() == b"mp4"
+    assert not [p for p in (tmp / "work").rglob("*") if "_hook" in p.name or "_joined" in p.name], "no leftovers"
+
+
+def test_cold_opens_need_approved_ideas():
+    with pytest.raises(ValueError, match="approved ideas"):
+        ClippingJobRequest(video_url="https://x.test/v", phase="render", approved_idea_ids=["idea-01"], hook_idea_ids=["idea-02"])

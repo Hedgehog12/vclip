@@ -190,6 +190,51 @@ export function checkCaption(platform: ZernioPlatform, caption: string): Caption
 
 // ---- Caption defaults -----------------------------------------------------
 
+/** YouTube video categories (YouTube's own ids), as the planner may choose them. */
+export const YOUTUBE_CATEGORIES: readonly { id: string; label: string }[] = [
+  { id: '28', label: 'Science & Technology' }, { id: '27', label: 'Education' }, { id: '26', label: 'Howto & Style' },
+  { id: '22', label: 'People & Blogs' }, { id: '24', label: 'Entertainment' }, { id: '23', label: 'Comedy' },
+  { id: '20', label: 'Gaming' }, { id: '10', label: 'Music' }, { id: '25', label: 'News & Politics' },
+  { id: '17', label: 'Sports' }, { id: '19', label: 'Travel & Events' }, { id: '15', label: 'Pets & Animals' },
+  { id: '2', label: 'Autos & Vehicles' }, { id: '1', label: 'Film & Animation' }, { id: '29', label: 'Nonprofits & Activism' }
+]
+/** YouTube's own default for new uploads. */
+export const DEFAULT_YOUTUBE_CATEGORY = '22'
+
+export function isYouTubeCategory(value: unknown): value is string {
+  return typeof value === 'string' && YOUTUBE_CATEGORIES.some((category) => category.id === value)
+}
+
+/** YouTube keeps tags until their combined length passes 500 characters, each at most 100. */
+export const YOUTUBE_TAGS_MAX_CHARS = 500
+export const YOUTUBE_TAGS_MAX_COUNT = 20
+
+/** Tags typed as "claude code, ai tools" (commas or new lines). */
+export function parseTagList(text: string): string[] {
+  return text.split(/[,\n]/)
+}
+
+/**
+ * Keyword tags for YouTube: no "#", single spaces, no duplicates, nothing
+ * YouTube rejects, and only as many as fit its limits.
+ */
+export function youtubeTagsFrom(tags: readonly string[]): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+  let length = 0
+  for (const raw of tags) {
+    const tag = raw.replace(/^#+/, '').replace(/\s+/g, ' ').trim()
+    const key = tag.toLocaleLowerCase()
+    if (!tag || [...tag].length > 100 || /[<>]/.test(tag) || seen.has(key)) continue
+    const next = length + (result.length ? 1 : 0) + tag.length
+    if (next > YOUTUBE_TAGS_MAX_CHARS || result.length >= YOUTUBE_TAGS_MAX_COUNT) break
+    seen.add(key)
+    result.push(tag)
+    length = next
+  }
+  return result
+}
+
 /** "startup tips" → "#StartupTips", "ai" → "#ai". Drops tags with nothing usable. */
 export function hashtagFor(tag: string): string | null {
   const words = tag.normalize('NFKC').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
@@ -366,6 +411,11 @@ export interface PostClipRequest {
   /** From job_output.json; used only when ffprobe can't read the file. */
   durationMs: number | null
   caption: string
+  /**
+   * The clip's thumbnail (clip_XX.thumbnail.png|jpg|webp beside the clip), sent
+   * as the Instagram Reel cover and the YouTube thumbnail. YouTube ignores it on Shorts.
+   */
+  thumbnailPath?: string | null
   targets: PostTarget[]
   timing: PostTiming
   options: PostOptions

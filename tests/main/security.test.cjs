@@ -33,6 +33,8 @@ const runHistory = loadSource('run-history.ts', { '../shared/video-source': vide
 const sharedJobs = loadShared('jobs.ts')
 const reviewStore = loadSource('review-store.ts', { './run-history': runHistory })
 DEFAULT_MOCKS['../shared/jobs'] = sharedJobs
+DEFAULT_MOCKS['../shared/openrouter-models'] = loadShared('openrouter-models.ts')
+DEFAULT_MOCKS['../shared/thumbnail-prompt'] = loadShared('thumbnail-prompt.ts')
 DEFAULT_MOCKS['./review-store'] = reviewStore
 const security = loadSource('security.ts', { electron: {}, '../shared/brand': loadShared('brand.ts') })
 const { validateJobConfig } = loadSource('validation.ts', { './security': security, '../shared/video-source': videoSource, '../shared/job-contract': jobContract, '../shared/openrouter-models': loadShared('openrouter-models.ts') })
@@ -195,6 +197,8 @@ test('the native picker authorizes media and shell opening rejects aliased appli
       './network-policy': {},
       './validation': {},
       './openrouter-models': {},
+      './thumbnail-generator': {},
+      './clip-details': {},
       './tools': {},
       './zernio/service': {},
       './zernio/posts': {},
@@ -214,6 +218,17 @@ test('the native picker authorizes media and shell opening rejects aliased appli
       fs.symlinkSync(bundle, alias, directoryLinkType)
       await assert.rejects(handlers.get('shell:openPath')({ sender: contents, senderFrame: frame }, alias), /Application bundles cannot be opened/)
     } else t.diagnostic('Directory links unavailable; aliased bundle assertion skipped')
+
+    // Thumbnails can only be asked for ideas that are also being rendered.
+    const render = handlers.get('review:render')
+    const trusted = { sender: contents, senderFrame: frame }
+    const jobId = '11111111-2222-4333-8444-555555555555'
+    for (const thumbnails of [['idea-02'], ['idea-01', 'idea-01'], 'idea-01', [42]]) {
+      assert.equal((await render(trusted, jobId, ['idea-01'], thumbnails)).error, 'Thumbnails can only be made for approved ideas.')
+    }
+    for (const hooks of [['idea-02'], ['idea-01', 'idea-01'], 'idea-01', [42]]) {
+      assert.equal((await render(trusted, jobId, ['idea-01'], [], hooks)).error, 'Cold opens can only be made for approved ideas.')
+    }
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -272,6 +287,35 @@ test('saved provider keys remain in main and migrate away from legacy encoding',
     assert.equal(JSON.stringify(settingsStore.publicSettings(settingsStore.loadSettings())).includes('dummy-social-value'), false)
     settingsStore.replaceApiKey('openrouterApiKey', '')
     assert.equal(settingsStore.publicSettings(settingsStore.loadSettings()).openrouterConfigured, false)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('thumbnail settings default for older settings files, keep the key, and refuse invalid models', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-thumb-settings-'))
+  const userData = path.join(root, 'userdata')
+  fs.mkdirSync(userData)
+  fs.writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({ version: 7, outputDirectory: root, customVocabulary: 'Vlasiichuk',
+    openrouterApiKey: { scheme: 'safeStorage', value: Buffer.from('kept-key').toString('base64') } }))
+  const store = loadSource('settings-store.ts', { electron: {
+    app: { getPath: (name) => ({ home: root, appData: root, userData }[name]), isReady: () => true },
+    safeStorage: { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'gnome_libsecret', encryptString: (value) => Buffer.from(value), decryptString: (value) => value.toString() }
+  } })
+  const prompts = loadShared('thumbnail-prompt.ts')
+  try {
+    const loaded = store.loadSettings()
+    assert.equal(loaded.openrouterApiKey, 'kept-key')
+    assert.equal(loaded.customVocabulary, 'Vlasiichuk')
+    assert.equal(loaded.thumbnailPrompt, prompts.DEFAULT_THUMBNAIL_PROMPT)
+    assert.equal(loaded.thumbnailModel, prompts.DEFAULT_THUMBNAIL_MODEL)
+    const publicView = store.publicSettings(loaded)
+    let saved = store.savePublicSettings({ ...publicView, thumbnailPrompt: 'Big face, 3 words: {title}', thumbnailModel: 'openai/gpt-image-2' })
+    assert.equal(saved.thumbnailPrompt, 'Big face, 3 words: {title}')
+    assert.equal(saved.thumbnailModel, 'openai/gpt-image-2')
+    assert.equal(store.loadSettings().openrouterApiKey, 'kept-key')
+    saved = store.savePublicSettings({ ...saved, thumbnailPrompt: '   ', thumbnailModel: 'https://evil.test/model' })
+    assert.equal(saved.thumbnailPrompt, prompts.DEFAULT_THUMBNAIL_PROMPT, 'an emptied prompt returns to the default')
+    assert.equal(saved.thumbnailModel, prompts.DEFAULT_THUMBNAIL_MODEL)
+    assert.ok(prompts.DEFAULT_THUMBNAIL_PROMPT.length < 8000, 'the default fits the settings size limit')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -626,10 +670,14 @@ test('an analysis that finds ideas pauses for approval; a render round cannot cl
         runHistory.finishRunRecord(root, jobId, 'awaiting_approval')
         runHistory.beginRenderRound(root, jobId)
       }
-      runner.startClipJob(jobId, { videoUrl: 'https://www.youtube.com/watch?v=abc123def45', ...(phase === 'render' ? { phase, approvedIdeaIds: ['idea-02'] } : {}) }, window)
+      runner.startClipJob(jobId, { videoUrl: 'https://www.youtube.com/watch?v=abc123def45', ...(phase === 'render' ? { phase, approvedIdeaIds: ['idea-02'], hookIdeaIds: ['idea-02'], thumbnailIdeaIds: ['idea-02'] } : {}) }, window)
       const forwarded = JSON.parse(workerInput)
       assert.equal(forwarded.phase, phase)
-      if (phase === 'render') assert.deepEqual(forwarded.approved_idea_ids, ['idea-02'])
+      if (phase === 'render') {
+        assert.deepEqual(forwarded.approved_idea_ids, ['idea-02'])
+        assert.deepEqual(forwarded.hook_idea_ids, ['idea-02'], 'cold opens are made by the engine')
+        assert.equal('thumbnail_idea_ids' in forwarded, false, 'thumbnails stay in the app')
+      } else assert.equal('hook_idea_ids' in forwarded, false)
       child.stdout.write(JSON.stringify({ type: 'result', status: 'awaiting_approval', job_id: jobId }) + '\n')
       child.stdout.end()
       await new Promise((resolve) => setImmediate(resolve))

@@ -128,6 +128,8 @@ export function parsePostClipRequest(value: unknown): PostClipRequest {
   const clipTitle = typeof request.clipTitle === 'string' ? request.clipTitle.slice(0, 500) : ''
   const durationMs = typeof request.durationMs === 'number' && Number.isFinite(request.durationMs) && request.durationMs >= 0 ? request.durationMs : null
   if (typeof request.caption !== 'string' || request.caption.includes('\0') || captionLength(request.caption) > MAX_CAPTION) invalid('caption')
+  const thumbnailPath = request.thumbnailPath ?? null
+  if (thumbnailPath !== null && (typeof thumbnailPath !== 'string' || thumbnailPath.includes('\0') || !/\.thumbnail\.(png|jpg|webp)$/i.test(thumbnailPath))) invalid('thumbnail')
 
   if (!Array.isArray(request.targets) || request.targets.length === 0) throw new Error('Choose at least one account to post to.')
   if (request.targets.length > MAX_TARGETS) invalid('too many accounts')
@@ -152,6 +154,7 @@ export function parsePostClipRequest(value: unknown): PostClipRequest {
     clipTitle,
     durationMs,
     caption: request.caption,
+    thumbnailPath,
     targets,
     timing: parseTiming(request.timing),
     options: parseOptions(request.options, targets)
@@ -230,6 +233,8 @@ function tiktokSharedSettings(options: TikTokPostOptions): JsonRecord {
 
 export interface PostBodyContext {
   publicUrl: string
+  /** The uploaded thumbnail (JPEG): the Instagram Reel cover and YouTube thumbnail. */
+  thumbnailUrl?: string | null
   /** Each TikTok account's allowed interactions, from its creator info. Missing means all off. */
   tiktokInteractions?: Record<string, TikTokCreatorInfo['interactions']>
   facebookFormat?: FacebookFormat
@@ -249,6 +254,7 @@ export function buildCreatePostBody(request: PostClipRequest, context: PostBodyC
       if (options.youtube.categoryId) data.categoryId = options.youtube.categoryId
     }
     if (target.platform === 'instagram' && options.instagram) data.shareToFeed = options.instagram.shareToFeed
+    if (target.platform === 'instagram' && context.thumbnailUrl) data.instagramThumbnail = context.thumbnailUrl
     if (target.platform === 'facebook' && (context.facebookFormat ?? options.facebook?.format) === 'reel') {
       data.contentType = 'reel'
       if (options.facebook?.title) data.title = options.facebook.title
@@ -267,7 +273,10 @@ export function buildCreatePostBody(request: PostClipRequest, context: PostBodyC
 
   const body: JsonRecord = {
     content: request.caption,
-    mediaItems: [{ type: 'video', url: context.publicUrl }],
+    // YouTube reads a custom thumbnail from the video item. YouTube accepts Shorts
+    // thumbnails since July 2026; Zernio skips them silently until it supports them.
+    mediaItems: [{ type: 'video', url: context.publicUrl,
+      ...(context.thumbnailUrl && request.targets.some((t) => t.platform === 'youtube') ? { thumbnail: context.thumbnailUrl } : {}) }],
     platforms,
     metadata: { source: 'vlasiichukclip' }
   }
@@ -312,6 +321,19 @@ export function isPostUrl(value: unknown, platform: string): value is string {
   } catch {
     return false
   }
+}
+
+/**
+ * The YouTube Studio edit page of a posted video, from its public link
+ * (youtube.com/shorts/ID, watch?v=ID or youtu.be/ID). Null for anything else.
+ */
+export function youtubeStudioUrl(postUrl: unknown): string | null {
+  if (!isPostUrl(postUrl, 'youtube')) return null
+  const url = new URL(postUrl)
+  const id = url.hostname.endsWith('youtu.be') ? url.pathname.slice(1)
+    : url.pathname.startsWith('/shorts/') ? url.pathname.slice('/shorts/'.length)
+      : url.searchParams.get('v') ?? ''
+  return /^[A-Za-z0-9_-]{11}$/.test(id) ? `https://studio.youtube.com/video/${id}/edit` : null
 }
 
 function accountIdOf(value: unknown): string | undefined {

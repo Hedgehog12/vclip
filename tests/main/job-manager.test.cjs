@@ -24,6 +24,7 @@ function setup() {
   const starts = []
   const cancelled = []
   const records = []
+  const thumbnails = []
   const runner = {
     startClipJob: (jobId, config, sink, onExit, outputDirectory) => starts.push({ jobId, config, sink, onExit, outputDirectory }),
     cancelJob: (jobId) => { cancelled.push(jobId); return true }
@@ -32,6 +33,7 @@ function setup() {
     './pipeline-runner': runner,
     './run-history': { finishRunRecord: (dir, jobId, status) => records.push({ dir, jobId, status }) },
     './logger': { logger: { info() {}, warn() {}, error() {} } },
+    './thumbnail-generator': { queueThumbnailsForIdeas: async (...args) => { thumbnails.push(args) } },
     '../shared/job-output': jobOutput,
     '../shared/jobs': jobs
   })
@@ -40,7 +42,7 @@ function setup() {
   manager.initJobManager(() => window)
   const enqueue = (id, outputDirectory = '/clips') => manager.enqueueJob(id, { videoUrl: `/videos/${id}.mp4` }, outputDirectory)
   const status = (id) => manager.listJobs().find((job) => job.id === id)?.status
-  return { manager, starts, cancelled, records, sent, enqueue, status, setWindow: (next) => { window = next } }
+  return { manager, starts, cancelled, records, thumbnails, sent, enqueue, status, setWindow: (next) => { window = next } }
 }
 
 test('runs at most MAX_PARALLEL_JOBS at once and starts queued jobs in order as slots free', () => {
@@ -212,4 +214,25 @@ test('only finished jobs can be dismissed from the session list', () => {
   starts[0].sink.webContents.send('job:error', { message: 'Stopped.' })
   assert.equal(manager.dismissJob('a'), true)
   assert.equal(manager.listJobs().length, 0)
+})
+
+test('a completed render round queues AI thumbnails only for the ticked ideas; failed rounds queue none', () => {
+  const { manager, starts, thumbnails, status } = setup()
+  manager.enqueueRenderRound('a', { videoUrl: '/videos/a.mp4', phase: 'render', approvedIdeaIds: ['idea-01', 'idea-02'], thumbnailIdeaIds: ['idea-02'] }, '/clips', 'awaiting_approval')
+  assert.equal('thumbnailIdeaIds' in manager.listJobs()[0].request, false, 'snapshots keep the plain request')
+  starts[0].sink.webContents.send('job:error', { message: 'Clip rendering failed.' })
+  assert.equal(thumbnails.length, 0)
+  starts[0].onExit()
+
+  manager.enqueueRenderRound('a', { videoUrl: '/videos/a.mp4', phase: 'render', approvedIdeaIds: ['idea-01', 'idea-02'], thumbnailIdeaIds: ['idea-02'] }, '/clips', 'awaiting_approval')
+  starts[1].sink.webContents.send('job:complete', { output: { job_id: 'a', clips: [] } })
+  assert.equal(status('a'), 'completed', 'the job is done before its thumbnails are')
+  assert.equal(thumbnails.length, 1)
+  assert.deepEqual([...thumbnails[0][1]], ['idea-02'])
+  assert.equal(thumbnails[0][2], '/clips')
+  starts[1].onExit()
+
+  manager.enqueueRenderRound('a', { videoUrl: '/videos/a.mp4', phase: 'render', approvedIdeaIds: ['idea-03'], thumbnailIdeaIds: [] }, '/clips', 'completed')
+  starts[2].sink.webContents.send('job:complete', { output: { job_id: 'a', clips: [] } })
+  assert.equal(thumbnails.length, 1, 'unticked ideas get no thumbnail')
 })

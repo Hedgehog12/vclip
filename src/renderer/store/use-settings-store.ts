@@ -26,6 +26,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   outputDirectory: '',
   pythonPath: 'python3',
   customVocabulary: '',
+  thumbnailPrompt: '',
+  thumbnailModel: '',
   loaded: false,
   saving: false,
   toolStatus: null,
@@ -89,7 +91,9 @@ function pickSettings(s: ClipSettings): ClipSettings {
     zernioConfigured: s.zernioConfigured,
     outputDirectory: s.outputDirectory,
     pythonPath: s.pythonPath,
-    customVocabulary: s.customVocabulary
+    customVocabulary: s.customVocabulary,
+    thumbnailPrompt: s.thumbnailPrompt,
+    thumbnailModel: s.thumbnailModel
   }
 }
 

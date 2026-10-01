@@ -1,9 +1,9 @@
 import { app, shell } from 'electron'
 import { execFile } from 'child_process'
 import { createHash, randomUUID } from 'crypto'
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
-import { stat } from 'fs/promises'
-import { basename, join } from 'path'
+import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { open, readFile, stat } from 'fs/promises'
+import { basename, dirname, join } from 'path'
 import { promisify } from 'util'
 import { loadSettings } from '../settings-store'
 import { assertMediaPath, openAuthorizedMedia } from '../security'
@@ -17,6 +17,7 @@ import {
   buildCreatePostBody,
   isPostUrl,
   parsePostClipRequest,
+  youtubeStudioUrl,
   parseTikTokCreatorInfo,
   tiktokOptionsError
 } from './posts-payload'
@@ -137,6 +138,9 @@ interface Attempt {
   payloadKey: string | null
   requestStartedAt: number | null
   retryAfterAt: number | null
+  /** The uploaded cover (thumbnail) and the file version it came from, reused on retry. */
+  thumbnailKey?: string | null
+  thumbnailUrl?: string | null
 }
 
 /**
@@ -188,7 +192,12 @@ function loadAttempts(): void {
           (value.requestId !== null && typeof value.requestId !== 'string') ||
           (value.payloadKey !== null && typeof value.payloadKey !== 'string') ||
           (value.requestStartedAt !== null && !Number.isFinite(value.requestStartedAt))) continue
-      attempts.set(row[0].slice(0, 128), { ...value, retryAfterAt: Number.isFinite(value.retryAfterAt) ? value.retryAfterAt : null })
+      attempts.set(row[0].slice(0, 128), {
+        ...value,
+        retryAfterAt: Number.isFinite(value.retryAfterAt) ? value.retryAfterAt : null,
+        thumbnailKey: typeof value.thumbnailKey === 'string' ? value.thumbnailKey : null,
+        thumbnailUrl: typeof value.thumbnailUrl === 'string' ? value.thumbnailUrl : null
+      })
     }
   } catch { quarantineUnbound(path) }
 }
@@ -336,6 +345,81 @@ async function resolveTargets(client: ZernioClient, requested: PostClipRequest['
   })
 }
 
+/** Platforms that take a custom cover image. */
+const COVER_PLATFORMS = new Set(['instagram', 'youtube'])
+const MAX_COVER_BYTES = 2 * 1024 * 1024
+
+/**
+ * The clip's thumbnail as a JPEG Zernio can pass on: Instagram takes JPEG or
+ * PNG covers, YouTube up to 2 MB. Never enlarged, at most 1920 px a side.
+ */
+async function coverJpeg(source: string): Promise<string> {
+  const head = (await readFile(source)).subarray(0, 12)
+  const image = head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) || (head[0] === 0xff && head[1] === 0xd8) ||
+    (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP')
+  if (!image) throw new Error('The thumbnail is not a PNG, JPEG or WebP picture.')
+  const target = join(app.getPath('temp'), `vlasiichukclip-cover-${randomUUID()}.jpg`)
+  try {
+    for (const quality of ['3', '8']) {
+      await execFileAsync(resolveBinary('ffmpeg'), [
+        '-v', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file', '-i', source, '-frames:v', '1',
+        '-vf', "scale=w='min(iw,1920)':h='min(ih,1920)':force_original_aspect_ratio=decrease", '-q:v', quality, target
+      ], { timeout: 30_000, windowsHide: true })
+      if ((await stat(target)).size <= MAX_COVER_BYTES) return target
+    }
+    throw new Error('The thumbnail is too large to post.')
+  } catch (error) {
+    rmSync(target, { force: true })
+    throw error
+  }
+}
+
+/** Upload the clip's thumbnail once per attempt; null when no chosen platform uses one. */
+async function uploadCover(client: ZernioClient, request: PostClipRequest, attempt: Attempt, signal: AbortSignal, generation: number): Promise<string | null> {
+  const path = request.thumbnailPath
+  if (!path || !request.targets.some((t) => COVER_PLATFORMS.has(t.platform))) return null
+  // Only the clip's own thumbnail, stored beside it in the library.
+  // Compare resolved paths: the clip path comes from the engine's output, the
+  // thumbnail's from the file system, and on Windows they can be spelled differently.
+  let clip: string
+  let picture: string
+  try {
+    clip = realpathSync(request.clipPath)
+    picture = realpathSync(path)
+  } catch { throw new Error('The thumbnail file is missing. Untick “Use thumbnail” or make it again in the Library.') }
+  const stem = basename(clip).replace(/\.[^.]+$/, '')
+  if (dirname(picture) !== dirname(clip) || !basename(picture).startsWith(`${stem}.thumbnail.`)) {
+    throw new Error('That thumbnail does not belong to this clip. Untick “Use thumbnail” to post without it.')
+  }
+  assertMediaPath(picture, loadSettings().outputDirectory)
+  const info = await stat(picture)
+  const key = `${info.size}:${info.mtimeMs}`
+  if (attempt.thumbnailUrl && attempt.thumbnailKey === key) return attempt.thumbnailUrl
+  let jpeg: string | null = null
+  try {
+    jpeg = await coverJpeg(picture)
+    const handle = await open(jpeg, 'r')
+    try {
+      const size = (await handle.stat()).size
+      const { uploadUrl, publicUrl } = await client.presignMedia(`${stem}-cover.jpg`, 'image/jpeg', size)
+      assertWorkspace(generation)
+      await putFile(uploadUrl, handle, { contentType: 'image/jpeg', size, signal })
+      assertWorkspace(generation)
+      attempt.thumbnailKey = key
+      attempt.thumbnailUrl = publicUrl
+      saveAttempts()
+      logger.info('zernio.post.coverUploaded', { bytes: size })
+      return publicUrl
+    } finally { await handle.close() }
+  } catch (error) {
+    if (signal.aborted) throw error
+    const reason = error instanceof Error ? error.message : 'unknown error'
+    throw new Error(`Could not upload the thumbnail (${reason}). Untick “Use thumbnail” to post without it.`)
+  } finally {
+    if (jpeg) rmSync(jpeg, { force: true })
+  }
+}
+
 export async function publishClip(raw: unknown, notify: (progress: PostProgress) => void): Promise<PostClipResult> {
   const request = parsePostClipRequest(raw)
   const generation = workspaceGeneration
@@ -444,8 +528,10 @@ async function publish(request: PostClipRequest, signal: AbortSignal, notify: (p
     throw new Error('The scheduled time passed while the clip uploaded. Pick a later time and post again; the upload is kept.')
   }
 
+  const thumbnailUrl = await uploadCover(client, request, attempt, signal, generation)
   const body = buildCreatePostBody(request, {
     publicUrl: attempt.publicUrl,
+    thumbnailUrl,
     tiktokInteractions: Object.fromEntries(tiktokInfos.map((info) => [info.accountId, info.interactions])),
     facebookFormat: request.options.facebook?.format
   })
@@ -695,6 +781,15 @@ export async function openPostLink(id: unknown, targetIndex: unknown): Promise<v
   const target = Number.isInteger(targetIndex) ? post.targets[targetIndex as number] : undefined
   if (!target || !isPostUrl(target.url, target.platform)) throw new Error('This post doesn’t have a link yet.')
   await shell.openExternal(target.url)
+}
+
+/** Opens a posted YouTube video in YouTube Studio, where its thumbnail can be set by hand. */
+export async function openYouTubeStudio(id: unknown, targetIndex: unknown): Promise<void> {
+  const post = requirePost(id)
+  const target = Number.isInteger(targetIndex) ? post.targets[targetIndex as number] : undefined
+  const studio = target?.platform === 'youtube' ? youtubeStudioUrl(target.url) : null
+  if (!studio) throw new Error('This YouTube video doesn’t have a link yet. Try again in a minute.')
+  await shell.openExternal(studio)
 }
 
 export async function openTikTokLegal(key: unknown): Promise<void> {

@@ -9,7 +9,7 @@ const MAX_REVIEW_BYTES = 5 * 1024 * 1024
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const IDEA_ID = /^idea-\d{2,3}$/
 const SOURCE_FILE = /^source\.[a-z0-9]{1,5}$/
-const CLIP_FILE = /^clip_\d{2,}\.(mp4|srt|youtube\.txt)$/
+const CLIP_FILE = /^clip_\d{2,}\.(mp4|srt|youtube\.txt|thumbnail\.(png|jpg|webp))$/
 const SCORE_KEYS = ['hook', 'standalone', 'arc', 'quotability', 'ending'] as const
 
 export interface SavedReview {
@@ -67,6 +67,12 @@ function parseIdea(value: unknown): ReviewIdea | null {
     })
     : []
   const clipIndex = idea.clip_index
+  const hookStart = ms(idea.hook_start_ms)
+  const hookEnd = ms(idea.hook_end_ms)
+  const hookText = text(idea.hook_text, 400)?.trim()
+  // Only a hook that lies inside the clip and has words to show is offered.
+  const hook = hookStart !== null && hookEnd !== null && hookText && hookEnd > hookStart && hookStart >= startMs && hookEnd <= endMs
+    ? { startMs: hookStart, endMs: hookEnd, text: hookText } : null
   return {
     id,
     rank: typeof idea.rank === 'number' && Number.isSafeInteger(idea.rank) ? idea.rank : 0,
@@ -82,7 +88,8 @@ function parseIdea(value: unknown): ReviewIdea | null {
     startMs,
     endMs,
     skipRanges,
-    tags: Array.isArray(idea.tags) ? idea.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 12).map((tag) => tag.slice(0, 48)) : []
+    tags: Array.isArray(idea.tags) ? idea.tags.filter((tag): tag is string => typeof tag === 'string').slice(0, 12).map((tag) => tag.slice(0, 48)) : [],
+    hook
   }
 }
 
