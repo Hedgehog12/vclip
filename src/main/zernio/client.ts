@@ -573,6 +573,15 @@ export class ZernioClient {
     }
   }
 
+  /** GET /v1/posts: one page of the workspace's posts, as Zernio filters and sorts them. */
+  async listPosts(params: URLSearchParams): Promise<{ posts: JsonRecord[]; page: number; pages: number; total: number }> {
+    const { body } = await this.postingRequest('GET', `/posts?${params}`)
+    const pagination = asRecord(body.pagination)
+    const posts = (Array.isArray(body.posts) ? body.posts : extractCollection(body)).map(asRecord)
+    const number = (value: unknown, fallback: number): number => (Number.isInteger(value) && (value as number) >= 0 ? (value as number) : fallback)
+    return { posts, page: number(pagination.page, 1), pages: number(pagination.pages, 1), total: number(pagination.total, posts.length) }
+  }
+
   async getPost(postId: string): Promise<JsonRecord> {
     return unwrap((await this.postingRequest('GET', `/posts/${encodeURIComponent(postId)}`)).body, 'post')
   }

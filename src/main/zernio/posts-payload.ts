@@ -2,7 +2,7 @@
 // turning Zernio's post objects into local history records. No Electron or
 // network here, so tests can exercise every branch directly.
 
-import { sanitizeProviderText } from './client'
+import { cleanHandle, sanitizeProviderText } from './client'
 import { isZernioId, isZernioPlatform, type ZernioPlatform } from '../../shared/zernio'
 import {
   EMPTY_TIKTOK_ACCOUNT,
@@ -20,7 +20,8 @@ import {
   type PostTiming,
   type TikTokAccountOptions,
   type TikTokCreatorInfo,
-  type TikTokPostOptions
+  type TikTokPostOptions, POST_DETAILS_CAPTION_MAX, POST_DETAILS_MAX_WARNINGS, type PostDetails,
+  POSTS_SORTS, REMOTE_POST_STATUSES, type PostListItem, type RemotePostsQuery
 } from '../../shared/zernio-posts'
 
 export { tiktokOptionsError } from '../../shared/zernio-posts'
@@ -324,6 +325,39 @@ export function isPostUrl(value: unknown, platform: string): value is string {
 }
 
 /**
+ * What a post sends, for the Posts page. `thumbnailSent` says whether the
+ * thumbnail was really uploaded (only Instagram and YouTube take one).
+ */
+export function postDetailsFrom(request: PostClipRequest, thumbnailSent: boolean, warnings: readonly string[] = []): PostDetails {
+  const { options } = request
+  const platforms = new Set(request.targets.map((target) => target.platform))
+  const cap = (value: string): string => (value.length > POST_DETAILS_CAPTION_MAX ? `${value.slice(0, POST_DETAILS_CAPTION_MAX - 1)}…` : value)
+  const accountCaptions: Record<string, string> = {}
+  for (const target of request.targets) {
+    if (target.customContent && target.customContent !== request.caption) accountCaptions[target.accountId] = cap(target.customContent)
+  }
+  const youtube = platforms.has('youtube') ? options.youtube : undefined
+  const tiktok = platforms.has('tiktok') ? options.tiktok : undefined
+  return {
+    caption: cap(request.caption),
+    thumbnailPath: thumbnailSent && request.thumbnailPath ? request.thumbnailPath : null,
+    accountCaptions,
+    youtube: youtube ? {
+      title: youtube.title, visibility: youtube.visibility, madeForKids: youtube.madeForKids,
+      categoryId: youtube.categoryId ?? null, tags: [...(youtube.tags ?? [])]
+    } : null,
+    instagram: platforms.has('instagram') && options.instagram ? { shareToFeed: options.instagram.shareToFeed } : null,
+    facebook: platforms.has('facebook') && options.facebook ? { format: options.facebook.format, title: options.facebook.title ?? null } : null,
+    threads: platforms.has('threads') && options.threads ? { topicTag: options.threads.topicTag ?? null } : null,
+    tiktok: tiktok ? {
+      draft: tiktok.draft === true, madeWithAi: tiktok.madeWithAi === true,
+      privacy: Object.fromEntries(Object.entries(tiktok.accounts).map(([id, account]) => [id, account.privacyLevel]))
+    } : null,
+    warnings: warnings.filter((w) => typeof w === 'string' && w.trim()).slice(0, POST_DETAILS_MAX_WARNINGS).map((w) => w.slice(0, 300))
+  }
+}
+
+/**
  * The YouTube Studio edit page of a posted video, from its public link
  * (youtube.com/shorts/ID, watch?v=ID or youtu.be/ID). Null for anything else.
  */
@@ -386,5 +420,90 @@ export function applyZernioPost(record: PostRecord, post: JsonRecord, extras: { 
     targets,
     error: extras.error !== undefined ? extras.error : status === 'failed' || status === 'partial' ? record.error : null,
     refreshedAt: extras.now ?? record.refreshedAt
+  }
+}
+
+// ---- Zernio's posts list ----------------------------------------------------
+
+export const REMOTE_POSTS_PAGE_MAX = 100
+const LISTED_CONTENT_MAX = 5000
+
+function isoOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null
+}
+
+/** The renderer's list query, checked field by field before it reaches Zernio. */
+export function parseRemotePostsQuery(value: unknown): RemotePostsQuery {
+  const q = asRecord(value)
+  const sort = POSTS_SORTS.find((s) => s === q.sort)
+  if (!sort) invalid('sort')
+  const status = q.status == null ? null : REMOTE_POST_STATUSES.find((s) => s === q.status) ?? invalid('status')
+  const platform = q.platform == null ? null : isZernioPlatform(q.platform) ? q.platform : invalid('platform')
+  const profileId = q.profileId == null ? null : isZernioId(q.profileId) ? q.profileId : invalid('profile')
+  const fromDate = q.fromDate == null ? null : isoOrNull(q.fromDate) ?? invalid('from date')
+  const toDate = q.toDate == null ? null : isoOrNull(q.toDate) ?? invalid('to date')
+  const search = typeof q.search === 'string' && q.search.length <= 200 ? q.search.trim() : invalid('search')
+  const page = Number.isInteger(q.page) && (q.page as number) >= 1 && (q.page as number) <= 1000 ? (q.page as number) : invalid('page')
+  const limit = Number.isInteger(q.limit) && (q.limit as number) >= 1 && (q.limit as number) <= REMOTE_POSTS_PAGE_MAX ? (q.limit as number) : invalid('page size')
+  return { sort, status, platform, profileId, fromDate, toDate, search, page, limit }
+}
+
+/** Query string for GET /v1/posts. */
+export function remotePostsParams(query: RemotePostsQuery): URLSearchParams {
+  const params = new URLSearchParams({ source: 'zernio', page: String(query.page), limit: String(query.limit), sortBy: query.sort })
+  if (query.status) params.set('status', query.status)
+  if (query.platform) params.set('platform', query.platform)
+  if (query.profileId) params.set('profileId', query.profileId)
+  if (query.fromDate) params.set('fromDate', query.fromDate)
+  if (query.toDate) params.set('toDate', query.toDate)
+  if (query.search) params.set('search', query.search)
+  return params
+}
+
+function listedTarget(entry: JsonRecord): PostRecordTarget | null {
+  const platform = str(entry.platform)
+  const account = asRecord(entry.accountId)
+  const accountId = accountIdOf(entry.accountId)
+  if (!platform || !isZernioPlatform(platform) || !isZernioId(accountId)) return null
+  const rawStatus = str(entry.status)
+  const status = TARGET_STATUSES.includes(rawStatus as PostTargetStatus) ? (rawStatus as PostTargetStatus) : 'pending'
+  const username = cleanHandle(account.username)
+  return {
+    platform,
+    accountId,
+    handle: username ? (username.startsWith('@') ? username : `@${username}`) : cleanHandle(account.displayName),
+    status,
+    error: status === 'failed' ? sanitizeProviderText(entry.errorMessage, 300) ?? 'Publishing failed.' : null,
+    url: isPostUrl(entry.platformPostUrl, platform) ? entry.platformPostUrl : null,
+    inbox: asRecord(entry.platformSpecificData).isDraft === true
+  }
+}
+
+/**
+ * One post from GET /v1/posts as a list row. A post VlasiichukClip made keeps
+ * its local record (clip file, what was sent) and takes Zernio's current state.
+ */
+export function listedPostItem(post: JsonRecord, local: PostRecord | null): PostListItem | null {
+  const id = str(post._id) ?? str(post.id)
+  const rawStatus = str(post.status)
+  const status = POST_STATUSES.find((s) => s === rawStatus)
+  if (!isZernioId(id) || !status) return null
+  const targets = (Array.isArray(post.platforms) ? post.platforms.map(asRecord) : []).map(listedTarget).filter((t): t is PostRecordTarget => t !== null)
+  const content = typeof post.content === 'string' ? post.content.slice(0, LISTED_CONTENT_MAX) : ''
+  const timezone = str(post.timezone)
+  const profileId = accountIdOf(post.profileId) ?? str(post.queuedFromProfile)
+  const merged = local ? applyZernioPost(local, post) : null
+  return {
+    id,
+    origin: local ? 'app' : 'zernio',
+    content: content || str(post.title)?.slice(0, 500) || local?.details?.caption || local?.clipTitle || '',
+    status,
+    scheduledFor: isoOrNull(post.scheduledFor),
+    timezone: timezone && isValidTimeZone(timezone) ? timezone : null,
+    createdAt: isoOrNull(post.createdAt) ?? local?.createdAt ?? new Date(0).toISOString(),
+    publishedAt: isoOrNull(post.publishedAt),
+    profileId: isZernioId(profileId) ? profileId : null,
+    targets: merged?.targets ?? targets,
+    local: merged
   }
 }

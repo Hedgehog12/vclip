@@ -197,7 +197,7 @@ test('post a Library clip now and on a schedule, then cancel the scheduled one',
   assert.equal(now.body.content, `${CLIP_TITLE}\n\n#AICoding #testing`)
   assert.deepEqual(now.body.mediaItems, [{ type: 'video', url: posting.state.presigned.get(upload.key).publicUrl }])
   assert.deepEqual(now.body.platforms.map((p) => [p.platform, p.accountId]).sort(), [['tiktok', tiktok._id], ['youtube', youtube._id]].sort())
-  assert.deepEqual(now.body.platforms.find((p) => p.platform === 'youtube').platformSpecificData, { title: CLIP_TITLE, visibility: 'public', madeForKids: false })
+  assert.deepEqual(now.body.platforms.find((p) => p.platform === 'youtube').platformSpecificData, { title: CLIP_TITLE, visibility: 'public', madeForKids: false, categoryId: '22' })
   assert.deepEqual(now.body.tiktokSettings, { content_preview_confirmed: true, express_consent_given: true, video_made_with_ai: false })
   assert.deepEqual(now.body.platforms.find((p) => p.platform === 'tiktok').platformSpecificData.tiktokSettings, {
     content_preview_confirmed: true,
@@ -233,11 +233,12 @@ test('post a Library clip now and on a schedule, then cancel the scheduled one',
 
   // The Posts page: both entries, then cancel the scheduled one.
   await dialog.getByRole('button', { name: 'View posts' }).click()
-  const scheduledGroup = page.getByRole('region', { name: 'Scheduled' })
-  await scheduledGroup.getByText(CLIP_TITLE).waitFor({ timeout: 15_000 })
-  const recentGroup = page.getByRole('region', { name: 'Recent' })
-  await recentGroup.getByText(CLIP_TITLE).waitFor()
-  await recentGroup.getByRole('button', { name: /Open on YouTube/ }).waitFor()
+  const rows = page.getByRole('list', { name: 'Posts' }).getByRole('listitem')
+  const scheduledRow = rows.filter({ hasText: /Scheduled for/ })
+  await scheduledRow.getByText(CLIP_TITLE).waitFor({ timeout: 15_000 })
+  const publishedRow = rows.filter({ hasText: /Posted / })
+  await publishedRow.getByText(CLIP_TITLE).waitFor()
+  await publishedRow.getByRole('button', { name: /Open on YouTube/ }).waitFor()
   // "View posts" opens the Posts page at the top.
   assert.ok(await page.getByRole('heading', { name: 'Posts', level: 1 }).evaluate((el) => {
     const box = el.getBoundingClientRect()
@@ -246,9 +247,10 @@ test('post a Library clip now and on a schedule, then cancel the scheduled one',
   await shot(page, '06-posts-panel')
 
   const scheduledId = [...posting.state.posts.values()].find((p) => p.status === 'scheduled')._id
-  await scheduledGroup.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await scheduledGroup.getByRole('button', { name: 'Cancel post' }).click()
-  await scheduledGroup.waitFor({ state: 'detached', timeout: 15_000 })
+  await scheduledRow.getByRole('button', { name: 'Cancel', exact: true }).click()
+  // The row now asks to confirm in place of its schedule line.
+  await rows.filter({ hasText: /Cancel this post\?/ }).getByRole('button', { name: 'Cancel post' }).click()
+  await page.getByText(/^Cancelled · created/).waitFor({ timeout: 15_000 })
   assert.equal(posting.state.posts.has(scheduledId), false, 'DELETE /v1/posts/{id} reached Zernio')
   assert.equal(mock.requestsTo('DELETE', `/api/v1/posts/${scheduledId}`).length, 1)
   await page.getByText(/^Cancelled · created/).waitFor()

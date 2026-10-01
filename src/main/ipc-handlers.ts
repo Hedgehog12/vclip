@@ -46,6 +46,8 @@ import {
   openPostLink,
   openTikTokLegal,
   openYouTubeStudio,
+  listRemotePosts,
+  openPostUrl,
   probeClipForPosting,
   publishClip,
   refreshPosts,
@@ -143,6 +145,8 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
   handle('zernio:posts:open', (_event, postId: unknown, targetIndex: unknown) => openPostLink(postId, targetIndex))
   handle('zernio:posts:openTikTokLegal', (_event, key: unknown) => openTikTokLegal(key))
   handle('zernio:posts:openStudio', (_event, postId: unknown, targetIndex: unknown) => openYouTubeStudio(postId, targetIndex))
+  handle('zernio:posts:listRemote', (_event, query: unknown) => listRemotePosts(query))
+  handle('zernio:posts:openUrl', (_event, url: unknown, platform: unknown) => openPostUrl(url, platform))
 
   handle('automations:list', () => listAutomations())
   handle('automations:create', (_event, name: unknown) => createAutomation(name))

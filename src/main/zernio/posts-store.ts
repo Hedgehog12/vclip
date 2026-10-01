@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { basename, dirname, extname, join } from 'path'
 import { isZernioId } from '../../shared/zernio'
-import type { PostRecord, PostRecordTarget, PostStatus, PostTargetStatus } from '../../shared/zernio-posts'
+import { POST_DETAILS_CAPTION_MAX, POST_DETAILS_MAX_WARNINGS, type PostDetails, type PostRecord, type PostRecordTarget, type PostStatus, type PostTargetStatus } from '../../shared/zernio-posts'
 import { quarantineUnbound, readableCache } from './workspace-cache'
 
 // Local history of posts made from VlasiichukClip, so the Accounts page can show
@@ -41,6 +41,50 @@ function parseTarget(value: unknown): PostRecordTarget | null {
   }
 }
 
+function stringList(value: unknown, maxCount: number, maxLength: number): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length <= maxLength).slice(0, maxCount) : []
+}
+
+function stringMap(value: unknown, maxLength: number): Record<string, string> {
+  const result: Record<string, string> = {}
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return result
+  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 20)) {
+    if (isZernioId(key) && typeof item === 'string' && item.length <= maxLength) result[key] = item
+  }
+  return result
+}
+
+/** What was sent with a post. Anything malformed drops the details, never the post. */
+export function parsePostDetails(value: unknown): PostDetails | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const d = value as Record<string, unknown>
+  const caption = text(d.caption, POST_DETAILS_CAPTION_MAX)
+  if (caption === null) return null
+  const object = (field: unknown): Record<string, unknown> | null =>
+    field && typeof field === 'object' && !Array.isArray(field) ? field as Record<string, unknown> : null
+  const youtube = object(d.youtube)
+  const instagram = object(d.instagram)
+  const facebook = object(d.facebook)
+  const threads = object(d.threads)
+  const tiktok = object(d.tiktok)
+  const youtubeTitle = youtube ? text(youtube.title, 500) : null
+  const category = youtube && typeof youtube.categoryId === 'string' && /^\d{1,3}$/.test(youtube.categoryId) ? youtube.categoryId : null
+  return {
+    caption,
+    thumbnailPath: text(d.thumbnailPath, 4096),
+    accountCaptions: stringMap(d.accountCaptions, POST_DETAILS_CAPTION_MAX),
+    youtube: youtube && youtubeTitle !== null ? {
+      title: youtubeTitle, visibility: text(youtube.visibility, 20) ?? 'public', madeForKids: youtube.madeForKids === true,
+      categoryId: category, tags: stringList(youtube.tags, 20, 100)
+    } : null,
+    instagram: instagram ? { shareToFeed: instagram.shareToFeed === true } : null,
+    facebook: facebook ? { format: text(facebook.format, 20) ?? 'feed', title: text(facebook.title, 500) } : null,
+    threads: threads ? { topicTag: text(threads.topicTag, 100) } : null,
+    tiktok: tiktok ? { draft: tiktok.draft === true, madeWithAi: tiktok.madeWithAi === true, privacy: stringMap(tiktok.privacy, 64) } : null,
+    warnings: stringList(d.warnings, POST_DETAILS_MAX_WARNINGS, 300)
+  }
+}
+
 export function parsePostRecord(value: unknown): PostRecord | null {
   if (!value || typeof value !== 'object') return null
   const r = value as Record<string, unknown>
@@ -60,7 +104,8 @@ export function parsePostRecord(value: unknown): PostRecord | null {
     error: text(r.error, 1000),
     createdAt,
     uploadedAt,
-    refreshedAt: iso(r.refreshedAt)
+    refreshedAt: iso(r.refreshedAt),
+    details: parsePostDetails(r.details)
   }
 }
 
@@ -155,7 +200,9 @@ export class PostsStore {
         ...target,
         error: '\0'.repeat(300),
         url: '\0'.repeat(2048)
-      }))
+      })),
+      // Zernio's notices are saved into the details once the post exists.
+      details: base.details ? { ...base.details, warnings: Array.from({ length: POST_DETAILS_MAX_WARNINGS }, () => '\0'.repeat(300)) } : base.details
     }
     this.serialize([...this.list(), ...this.reservations, worst])
     this.reservations.push(worst)

@@ -17,6 +17,10 @@ import {
   buildCreatePostBody,
   isPostUrl,
   parsePostClipRequest,
+  postDetailsFrom,
+  listedPostItem,
+  parseRemotePostsQuery,
+  remotePostsParams,
   youtubeStudioUrl,
   parseTikTokCreatorInfo,
   tiktokOptionsError
@@ -39,6 +43,7 @@ import {
   type PostProgress,
   type PostRecord,
   type PostsRefreshResult,
+  type RemotePostsPage,
   type TikTokCreatorInfo
 } from '../../shared/zernio-posts'
 
@@ -572,7 +577,8 @@ async function publish(request: PostClipRequest, signal: AbortSignal, notify: (p
     error: null,
     createdAt: nowIso,
     uploadedAt: new Date(attempt.uploadedAt).toISOString(),
-    refreshedAt: nowIso
+    refreshedAt: nowIso,
+    details: postDetailsFrom(request, Boolean(thumbnailUrl))
   }
 
   // Fail before Zernio creates the post if its response could not be kept
@@ -599,6 +605,7 @@ async function publish(request: PostClipRequest, signal: AbortSignal, notify: (p
     assertWorkspace(generation)
 
     const record = applyZernioPost(base, created.post, { platformResults: created.platformResults, error: created.error, now: nowIso })
+    if (record.details) record.details = { ...record.details, warnings: postDetailsFrom(request, false, created.warnings).warnings }
     if (!isZernioId(record.id)) throw new Error('Zernio accepted the post but didn’t return its id. Check your Zernio dashboard.')
     posts().save(record)
     // The post exists now. Editing and posting again (after a failure) keeps the
@@ -795,4 +802,28 @@ export async function openYouTubeStudio(id: unknown, targetIndex: unknown): Prom
 export async function openTikTokLegal(key: unknown): Promise<void> {
   if (key !== 'musicUsage' && key !== 'brandedContent') throw new Error('Unknown link')
   await shell.openExternal(TIKTOK_LEGAL_LINKS[key])
+}
+
+// ---- Workspace list ---------------------------------------------------------
+
+/**
+ * One page of every post in the Zernio workspace, including ones made on
+ * zernio.com. Posts made here carry their local record.
+ */
+export async function listRemotePosts(rawQuery: unknown): Promise<RemotePostsPage> {
+  const generation = workspaceGeneration
+  const query = parseRemotePostsQuery(rawQuery)
+  const result = await getClient().listPosts(remotePostsParams(query))
+  assertWorkspace(generation)
+  const local = new Map(posts().list().map((post) => [post.id, post]))
+  const items = result.posts
+    .map((post) => listedPostItem(post, local.get(String(post._id ?? post.id ?? '')) ?? null))
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+  return { items, page: result.page, pages: Math.max(result.pages, result.page), total: result.total }
+}
+
+/** Opens a post's public link from the workspace list; only https links on that platform's own site. */
+export async function openPostUrl(url: unknown, platform: unknown): Promise<void> {
+  if (typeof platform !== 'string' || !isPostUrl(url, platform)) throw new Error('This link can’t be opened.')
+  await shell.openExternal(url)
 }

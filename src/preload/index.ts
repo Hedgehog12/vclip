@@ -9,7 +9,7 @@ import type {
   ZernioProfile,
   ZernioSyncResult
 } from '../shared/zernio'
-import type { ClipMediaInfo, PostClipRequest, PostClipResult, PostProgress, PostRecord, PostsRefreshResult, TikTokCreatorInfo, TikTokLegalLink } from '../shared/zernio-posts'
+import type { ClipMediaInfo, PostClipRequest, PostClipResult, PostProgress, PostRecord, PostsRefreshResult, RemotePostsPage, RemotePostsQuery, TikTokCreatorInfo, TikTokLegalLink } from '../shared/zernio-posts'
 import type { ClipJobRequest, IdeaDecision, JobReview, JobSnapshot, StorageUsage } from '../shared/jobs'
 import type { Automation, AutomationUpdate, AutomationTikTokReview, AutomationTikTokReviewUpdate } from '../shared/automations'
 import type { OpenRouterCatalog } from '../shared/openrouter-models'
@@ -130,6 +130,10 @@ export interface VlasiichukClipAPI {
       openTikTokLegal: (key: TikTokLegalLink) => Promise<void>
       /** Opens a posted YouTube video's edit page in YouTube Studio. */
       openStudio: (postId: string, targetIndex: number) => Promise<void>
+      /** One page of every post in the Zernio workspace, filtered and sorted by Zernio. */
+      listRemote: (query: RemotePostsQuery) => Promise<RemotePostsPage>
+      /** Opens a post's public link; only https links on that platform's site. */
+      openUrl: (url: string, platform: string) => Promise<void>
     }
   }
   job: {
@@ -254,7 +258,9 @@ const api: VlasiichukClipAPI = {
       dismiss: (postId) => ipcRenderer.invoke('zernio:posts:dismiss', postId),
       open: (postId, targetIndex) => ipcRenderer.invoke('zernio:posts:open', postId, targetIndex),
       openTikTokLegal: (key) => ipcRenderer.invoke('zernio:posts:openTikTokLegal', key),
-      openStudio: (postId, targetIndex) => ipcRenderer.invoke('zernio:posts:openStudio', postId, targetIndex)
+      openStudio: (postId, targetIndex) => ipcRenderer.invoke('zernio:posts:openStudio', postId, targetIndex),
+      listRemote: (query) => ipcRenderer.invoke('zernio:posts:listRemote', query),
+      openUrl: (url, platform) => ipcRenderer.invoke('zernio:posts:openUrl', url, platform)
     }
   },
   job: {

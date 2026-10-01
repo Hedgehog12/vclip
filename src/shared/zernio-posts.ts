@@ -443,6 +443,27 @@ export interface PostRecordTarget {
   inbox: boolean
 }
 
+/** Longest caption kept in a post's details (what was sent is shown, not re-sent). */
+export const POST_DETAILS_CAPTION_MAX = 10_000
+export const POST_DETAILS_MAX_WARNINGS = 5
+
+/** What was sent with a post, kept so the Posts page can show it later. Nothing secret. */
+export interface PostDetails {
+  caption: string
+  /** The thumbnail file sent as the Instagram cover and YouTube thumbnail, when one was sent. */
+  thumbnailPath: string | null
+  /** Text that differs for a single account (account id → text). */
+  accountCaptions: Record<string, string>
+  youtube: { title: string; visibility: string; madeForKids: boolean; categoryId: string | null; tags: string[] } | null
+  instagram: { shareToFeed: boolean } | null
+  facebook: { format: string; title: string | null } | null
+  threads: { topicTag: string | null } | null
+  /** TikTok privacy level per account id. `draft` means the clip went to the TikTok inbox. */
+  tiktok: { draft: boolean; madeWithAi: boolean; privacy: Record<string, string> } | null
+  /** Notices Zernio returned when it created the post. */
+  warnings: string[]
+}
+
 /** One post in the local history (userData/zernio-posts.json). Nothing secret. */
 export interface PostRecord {
   id: string
@@ -457,6 +478,8 @@ export interface PostRecord {
   /** When the clip reached Zernio's storage; bounds rescheduling (7-day retention). */
   uploadedAt: string
   refreshedAt: string | null
+  /** What was sent. Missing on posts made before this was recorded. */
+  details?: PostDetails | null
 }
 
 export type PostOutcome = 'published' | 'scheduled' | 'partial' | 'failed' | 'retrying' | 'publishing' | 'duplicate'
@@ -477,4 +500,111 @@ export interface PostsRefreshResult {
 const ACTIVE: PostStatus[] = ['scheduled', 'publishing']
 export function isPostActive(post: Pick<PostRecord, 'status'>): boolean {
   return ACTIVE.includes(post.status)
+}
+
+// ---- Posts list -------------------------------------------------------------
+
+/** Zernio's own sort orders for GET /v1/posts; local history sorts the same way. */
+export const POSTS_SORTS = ['scheduled-desc', 'scheduled-asc', 'created-desc', 'created-asc', 'status', 'platform'] as const
+export type PostsSort = (typeof POSTS_SORTS)[number]
+/** Statuses Zernio reports ('missing' exists only in local history). */
+export const REMOTE_POST_STATUSES = ['draft', 'scheduled', 'publishing', 'published', 'partial', 'failed', 'cancelled'] as const satisfies readonly PostStatus[]
+
+export interface PostsFilter {
+  status: PostStatus | null
+  platform: ZernioPlatform | null
+  profileId: string | null
+  /** ISO datetimes bounding the post's date (scheduled time, else creation). */
+  fromDate: string | null
+  toDate: string | null
+  search: string
+  sort: PostsSort
+}
+
+export const DEFAULT_POSTS_FILTER: PostsFilter = { status: null, platform: null, profileId: null, fromDate: null, toDate: null, search: '', sort: 'scheduled-desc' }
+
+export interface RemotePostsQuery extends PostsFilter {
+  page: number
+  limit: number
+}
+
+/** One row of the Posts list, from local history or from the Zernio workspace. */
+export interface PostListItem {
+  id: string
+  /** 'app' when VlasiichukClip made the post (it has a local record), 'zernio' otherwise. */
+  origin: 'app' | 'zernio'
+  content: string
+  status: PostStatus
+  scheduledFor: string | null
+  timezone: string | null
+  createdAt: string
+  publishedAt: string | null
+  /** Null when Zernio doesn't report it; the accounts' profiles stand in. */
+  profileId: string | null
+  targets: PostRecordTarget[]
+  local: PostRecord | null
+}
+
+export interface RemotePostsPage {
+  items: PostListItem[]
+  page: number
+  pages: number
+  total: number
+}
+
+export function postListItemFromRecord(record: PostRecord): PostListItem {
+  return {
+    id: record.id,
+    origin: 'app',
+    content: record.details?.caption || record.clipTitle,
+    status: record.status,
+    scheduledFor: record.scheduledFor,
+    timezone: record.timezone,
+    createdAt: record.createdAt,
+    publishedAt: null,
+    profileId: null,
+    targets: record.targets,
+    local: record
+  }
+}
+
+/** The date a post is filed under: when it is (or was) due, else when it was made. */
+export function postListDate(item: Pick<PostListItem, 'scheduledFor' | 'publishedAt' | 'createdAt'>): string {
+  return item.scheduledFor ?? item.publishedAt ?? item.createdAt
+}
+
+const STATUS_ORDER: PostStatus[] = ['publishing', 'scheduled', 'failed', 'partial', 'missing', 'draft', 'published', 'cancelled']
+
+/**
+ * Local history filtered and sorted like Zernio's list. `profileOf` maps an
+ * account to its profile, since history records don't store the profile.
+ */
+export function filterAndSortPosts(items: readonly PostListItem[], filter: PostsFilter, profileOf: (accountId: string) => string | null = () => null): PostListItem[] {
+  const needle = filter.search.trim().toLocaleLowerCase()
+  const from = filter.fromDate ? Date.parse(filter.fromDate) : null
+  const to = filter.toDate ? Date.parse(filter.toDate) : null
+  const matches = items.filter((item) => {
+    if (filter.status && item.status !== filter.status) return false
+    if (filter.platform && !item.targets.some((t) => t.platform === filter.platform)) return false
+    if (filter.profileId && item.profileId !== filter.profileId && !item.targets.some((t) => profileOf(t.accountId) === filter.profileId)) return false
+    const at = Date.parse(postListDate(item))
+    if (from != null && at < from) return false
+    if (to != null && at > to) return false
+    if (needle) {
+      const haystack = [item.content, item.local?.clipTitle ?? '', ...item.targets.map((t) => t.handle ?? '')].join('\n').toLocaleLowerCase()
+      if (!haystack.includes(needle)) return false
+    }
+    return true
+  })
+  const byDate = (key: (item: PostListItem) => string, direction: 1 | -1) => (a: PostListItem, b: PostListItem): number =>
+    direction * key(a).localeCompare(key(b)) || b.createdAt.localeCompare(a.createdAt)
+  const sorters: Record<PostsSort, (a: PostListItem, b: PostListItem) => number> = {
+    'scheduled-desc': byDate(postListDate, -1),
+    'scheduled-asc': byDate(postListDate, 1),
+    'created-desc': byDate((item) => item.createdAt, -1),
+    'created-asc': byDate((item) => item.createdAt, 1),
+    status: (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || postListDate(b).localeCompare(postListDate(a)),
+    platform: (a, b) => (a.targets[0]?.platform ?? '').localeCompare(b.targets[0]?.platform ?? '') || postListDate(b).localeCompare(postListDate(a))
+  }
+  return matches.sort(sorters[filter.sort])
 }

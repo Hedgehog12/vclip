@@ -17,5 +17,6 @@ export const PROVIDER_LINKS = {
 export const ZERNIO_LINKS = {
   signup: 'https://zernio.com/signup',
   pricing: 'https://zernio.com/pricing',
-  billing: 'https://zernio.com/dashboard/billing'
+  billing: 'https://zernio.com/dashboard/billing',
+  dashboard: 'https://zernio.com/dashboard'
 } as const

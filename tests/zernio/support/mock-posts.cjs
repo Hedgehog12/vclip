@@ -80,7 +80,9 @@ function createPostingMock(options = {}) {
     /** Hand out an upload URL on this origin instead of the mock (e.g. 'http://evil.example'). */
     uploadOrigin: options.uploadOrigin ?? null,
     /** Delay (ms) before answering POST /v1/posts, to exercise timeouts. */
-    createDelayMs: 0
+    createDelayMs: 0,
+    /** Query of every GET /v1/posts list request. */
+    listQueries: []
   }
 
   const view = (ctx, post) => ({
@@ -269,6 +271,40 @@ function createPostingMock(options = {}) {
         }
         create.status = 201
         return ctx.json(201, { message: 'Post scheduled successfully', post: view(ctx, post) })
+      }
+    },
+    {
+      // GET /v1/posts: the documented filters, sort orders and page/limit paging.
+      method: 'GET',
+      path: '/api/v1/posts',
+      handler: (ctx) => {
+        state.listQueries.push(Object.fromEntries(ctx.query))
+        const page = Number(ctx.query.get('page') ?? 1)
+        const limit = Number(ctx.query.get('limit') ?? 10)
+        if (!Number.isInteger(limit) || limit < 1 || limit > 500) return error(ctx, 400, 'limit must be between 1 and 500', { param: 'limit' })
+        const status = ctx.query.get('status')
+        const platform = ctx.query.get('platform')
+        const search = (ctx.query.get('search') ?? '').toLowerCase()
+        const date = (p) => p.scheduledFor ?? p.createdAt
+        const sorts = {
+          'scheduled-desc': (a, b) => date(b).localeCompare(date(a)),
+          'scheduled-asc': (a, b) => date(a).localeCompare(date(b)),
+          'created-desc': (a, b) => b.createdAt.localeCompare(a.createdAt),
+          'created-asc': (a, b) => a.createdAt.localeCompare(b.createdAt),
+          status: (a, b) => a.status.localeCompare(b.status),
+          platform: (a, b) => a.platforms[0].platform.localeCompare(b.platforms[0].platform)
+        }
+        const sort = sorts[ctx.query.get('sortBy') ?? 'scheduled-desc']
+        if (!sort) return error(ctx, 400, 'Invalid sortBy', { param: 'sortBy' })
+        const all = [...state.posts.values()]
+          .filter((p) => (!status || p.status === status) && (!platform || p.platforms.some((t) => t.platform === platform)) &&
+            (!search || (p.content ?? '').toLowerCase().includes(search)))
+          .sort(sort)
+        const slice = all.slice((page - 1) * limit, page * limit)
+        return ctx.json(200, {
+          posts: slice.map((p) => view(ctx, p)),
+          pagination: { page, limit, total: all.length, pages: Math.max(1, Math.ceil(all.length / limit)) }
+        })
       }
     },
     {

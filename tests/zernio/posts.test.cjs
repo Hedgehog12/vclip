@@ -1198,3 +1198,115 @@ test('a horizontal clip sends its thumbnail to YouTube', () => withPosting(async
   const cover = posting.state.uploads.find((upload) => upload.contentType === 'image/jpeg')
   assert.equal(posting.state.creates[0].body.mediaItems[0].thumbnail, posting.state.presigned.get(cover.key).publicUrl)
 }, { clip: { width: 640, height: 360 } }))
+
+test('a published post keeps what was sent, for the Posts page details', () => withPosting(async ({ main, clipPath, accounts, publish }) => {
+  const thumbnail = clipPath.replace(/\.mp4$/, '.thumbnail.png')
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0xFF6A3D:s=1080x1920', '-frames:v', '1', thumbnail])
+  const options = { instagram: { shareToFeed: true }, youtube: { title: 'Why agents need tests', visibility: 'unlisted', madeForKids: false, categoryId: '28', tags: ['claude code'] } }
+  const targets = [{ platform: 'instagram', accountId: accounts.instagram._id }, { platform: 'youtube', accountId: accounts.youtube._id }]
+  const result = await publish({ targets, options, thumbnailPath: thumbnail, caption: 'Why agents need tests\n\n#ai' })
+  for (const post of [result.post, main.posts.listPosts()[0]]) {
+    assert.equal(post.details.caption, 'Why agents need tests\n\n#ai')
+    assert.equal(post.details.thumbnailPath, thumbnail)
+    assert.equal(post.details.youtube.categoryId, '28')
+    assert.deepEqual([...post.details.youtube.tags], ['claude code'])
+    assert.equal(post.details.instagram.shareToFeed, true)
+  }
+  // Without a platform that takes a cover, no thumbnail is recorded as sent.
+  const tiktok = await publish({ attemptId: 'attempt-details-2', targets: [{ platform: 'tiktok', accountId: accounts.tiktok._id }], options: { tiktok: tiktokOptions([accounts.tiktok._id]) }, thumbnailPath: thumbnail })
+  assert.equal(tiktok.post.details.thumbnailPath, null)
+}))
+
+// ---- Posts list -------------------------------------------------------------
+
+const QUERY = { status: null, platform: null, profileId: null, fromDate: null, toDate: null, search: '', sort: 'scheduled-desc', page: 1, limit: 50 }
+
+test('the list query is checked before it reaches Zernio', () => {
+  assert.deepEqual({ ...payload.parseRemotePostsQuery({ ...QUERY, search: '  agents ' }) }, { ...QUERY, search: 'agents' })
+  for (const bad of [{ sort: 'likes' }, { status: 'missing' }, { platform: 'myspace' }, { profileId: 'not an id' }, { fromDate: 'soon' },
+    { search: 'x'.repeat(201) }, { page: 0 }, { limit: 101 }, { limit: 1.5 }]) {
+    assert.throws(() => payload.parseRemotePostsQuery({ ...QUERY, ...bad }), /Invalid post request/, JSON.stringify(bad))
+  }
+  const params = payload.remotePostsParams({ ...QUERY, status: 'scheduled', platform: 'youtube', search: 'ai', fromDate: '2026-10-01T00:00:00.000Z' })
+  assert.equal(params.toString(), 'source=zernio&page=1&limit=50&sortBy=scheduled-desc&status=scheduled&platform=youtube&fromDate=2026-10-01T00%3A00%3A00.000Z&search=ai')
+})
+
+test('a listed Zernio post becomes a row, with safe links and handles only', () => {
+  const account = 'a'.repeat(24)
+  const item = payload.listedPostItem({
+    _id: 'f'.repeat(24), content: 'Hello\nworld', status: 'published', createdAt: '2026-09-30T08:00:00Z', publishedAt: '2026-09-30T08:01:00Z',
+    platforms: [
+      { platform: 'instagram', accountId: { _id: account, username: 'vlasiichuk.pro' }, status: 'published', platformPostUrl: 'https://www.instagram.com/reel/abc' },
+      { platform: 'youtube', accountId: { _id: 'b'.repeat(24), displayName: 'Julian' }, status: 'published', platformPostUrl: 'https://evil.example/watch' },
+      { platform: 'myspace', accountId: 'c'.repeat(24), status: 'published' }
+    ]
+  }, null)
+  assert.equal(item.origin, 'zernio')
+  assert.equal(item.content, 'Hello\nworld')
+  assert.equal(item.publishedAt, '2026-09-30T08:01:00.000Z')
+  assert.deepEqual(item.targets.map((t) => [t.platform, t.handle, t.url]), [
+    ['instagram', '@vlasiichuk.pro', 'https://www.instagram.com/reel/abc'],
+    ['youtube', 'Julian', null]
+  ])
+  assert.equal(payload.listedPostItem({ _id: 'not an id', status: 'published' }, null), null)
+  assert.equal(payload.listedPostItem({ _id: 'f'.repeat(24), status: 'exploded' }, null), null)
+})
+
+test('local history filters and sorts like the Zernio list', () => {
+  const target = (platform, accountId) => ({ platform, accountId, handle: null, status: 'pending', error: null, url: null, inbox: false })
+  const record = (id, status, at, platform, caption) => ({
+    id: id.repeat(24), clipPath: `/lib/${id}.mp4`, clipTitle: `Clip ${id}`, targets: [target(platform, platform === 'youtube' ? 'a'.repeat(24) : 'b'.repeat(24))],
+    scheduledFor: status === 'scheduled' ? at : null, timezone: null, status, error: null, createdAt: at, uploadedAt: at, refreshedAt: null,
+    details: caption ? { caption } : null
+  })
+  const items = [
+    record('1', 'published', '2026-09-28T10:00:00.000Z', 'youtube', 'Claude skills you never used'),
+    record('2', 'scheduled', '2026-10-03T09:00:00.000Z', 'instagram', null),
+    record('3', 'failed', '2026-09-30T12:00:00.000Z', 'youtube', 'Every website needs a goal')
+  ].map(shared.postListItemFromRecord)
+  const base = { ...shared.DEFAULT_POSTS_FILTER }
+  const ids = (filter, profileOf) => shared.filterAndSortPosts(items, { ...base, ...filter }, profileOf).map((i) => i.id[0]).join('')
+
+  assert.equal(items[1].content, 'Clip 2', 'falls back to the clip title without a saved caption')
+  assert.equal(ids({}), '231')
+  assert.equal(ids({ sort: 'scheduled-asc' }), '132')
+  assert.equal(ids({ sort: 'status' }), '231')
+  assert.equal(ids({ sort: 'platform' }), '231')
+  assert.equal(ids({ status: 'failed' }), '3')
+  assert.equal(ids({ platform: 'youtube' }), '31')
+  assert.equal(ids({ search: 'WEBSITE' }), '3')
+  assert.equal(ids({ fromDate: '2026-09-29T00:00:00.000Z', toDate: '2026-10-01T00:00:00.000Z' }), '3')
+  const profile = 'p'.repeat(24)
+  assert.equal(ids({ profileId: profile }, (accountId) => (accountId === 'b'.repeat(24) ? profile : null)), '2')
+})
+
+test('the workspace list includes posts made on zernio.com and keeps local records for posts made here', () => withPosting(async ({ main, posting, accounts, publish, calls }) => {
+  const made = await publish()
+  const external = {
+    _id: 'e'.repeat(24), content: 'Posted from the Zernio dashboard', status: 'scheduled',
+    scheduledFor: new Date(Date.now() + DAY).toISOString(), timezone: 'Europe/Berlin',
+    platforms: [{ platform: 'instagram', accountId: accounts.instagram._id, status: 'pending' }],
+    hashes: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+  }
+  posting.state.posts.set(external._id, external)
+
+  const page = await main.posts.listRemotePosts(QUERY)
+  assert.equal(page.total, 2)
+  const byId = new Map(page.items.map((item) => [item.id, item]))
+  assert.equal(byId.get(external._id).origin, 'zernio')
+  assert.equal(byId.get(external._id).local, null)
+  assert.equal(byId.get(external._id).targets[0].handle, '@insta')
+  assert.equal(byId.get(made.post.id).origin, 'app')
+  assert.equal(byId.get(made.post.id).local.clipPath, made.post.clipPath)
+  assert.equal(byId.get(made.post.id).local.details.caption, 'Why agents need tests\n\n#AI')
+
+  const scheduled = await main.posts.listRemotePosts({ ...QUERY, status: 'scheduled', platform: 'instagram', limit: 1 })
+  assert.deepEqual(scheduled.items.map((item) => item.id), [external._id])
+  assert.equal(posting.state.listQueries.at(-1).status, 'scheduled')
+  assert.equal(posting.state.listQueries.at(-1).source, 'zernio')
+
+  await assert.rejects(main.posts.listRemotePosts({ ...QUERY, limit: 1000 }), /Invalid post request/)
+  await assert.rejects(main.posts.openPostUrl('https://evil.example/reel/1', 'instagram'), /can’t be opened/)
+  await main.posts.openPostUrl('https://www.instagram.com/reel/abc', 'instagram')
+  assert.equal(calls.openExternal.at(-1), 'https://www.instagram.com/reel/abc')
+}))
