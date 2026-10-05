@@ -1,6 +1,6 @@
-# Contributing to VlasiichukClip
+# Contributing to vClip
 
-VlasiichukClip is open source and maintained by [@Hedgehog12](https://github.com/Hedgehog12). Bug reports and feature requests are welcome through Issues. The MIT license permits anyone to use, modify, and fork the source.
+vClip is open source and maintained by [@Hedgehog12](https://github.com/Hedgehog12). Bug reports and feature requests are welcome through Issues. The MIT license permits anyone to use, modify, and fork the source.
 
 ## Set up
 

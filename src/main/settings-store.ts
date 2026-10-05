@@ -6,7 +6,7 @@ import { isModelId } from '../shared/openrouter-models'
 import { DEFAULT_THUMBNAIL_MODEL, DEFAULT_THUMBNAIL_PROMPT } from '../shared/thumbnail-prompt'
 
 /**
- * VlasiichukClip is bring-your-own-key: every provider call is made from this
+ * vClip is bring-your-own-key: every provider call is made from this
  * machine with the user's own keys. Keys are encrypted with the OS keychain
  * (safeStorage) when it is available.
  */

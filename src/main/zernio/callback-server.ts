@@ -34,7 +34,7 @@ function page(title: string, message: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${APP_NAME}</title>
-<style>body{background:#0a0a0a;color:#fafafa;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}main{text-align:center;max-width:360px;padding:0 16px}h1{font-size:15px;font-weight:600;margin:0 0 8px}p{font-size:13px;color:#a1a1a1;margin:0}</style></head>
+<style>body{background:#06070B;color:#D6DBE6;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}main{text-align:center;max-width:360px;padding:0 16px}h1{font-size:15px;font-weight:500;margin:0 0 8px}p{font-size:13px;color:#B4BBCB;margin:0}</style></head>
 <body><main><h1>${title}</h1><p>${message}</p></main></body>
 </html>`
 }

@@ -189,7 +189,7 @@ async function post(path: string, apiKey: string, payload: unknown): Promise<{ s
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      'X-Title': 'VlasiichukClip'
+      'X-Title': 'vClip'
     },
     body: JSON.stringify(payload)
   })

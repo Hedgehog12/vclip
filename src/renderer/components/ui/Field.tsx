@@ -28,8 +28,8 @@ export function Field({ label, hint, aside, htmlFor, children, className }: Fiel
 
 /** Recessed glass well shared by text inputs, selects and text areas. */
 export const WELL =
-  'glass-well transition-[border-color,box-shadow,background-color] duration-200 ease-out hover:border-white/[0.14] ' +
-  'focus-within:border-accent/70 focus-within:bg-black/30 focus-within:shadow-[inset_0_1px_2px_rgb(0_0_0/0.35),0_0_0_4px_rgb(var(--accent)/0.16)]'
+  'glass-well transition-[border-color,box-shadow,background-color] duration-200 ease-out hover:border-control ' +
+  'focus-within:border-accent focus-within:shadow-[inset_0_1px_2px_rgb(0_0_0/0.35),0_0_0_3px_rgb(var(--accent)/0.2)]'
 
 interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
   leading?: ReactNode
@@ -81,8 +81,8 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
       ref={ref}
       className={cn(
         'block w-full resize-y rounded-lg px-3 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:outline-none',
-        'glass-well transition-[border-color,box-shadow] duration-200 ease-out hover:border-white/[0.14]',
-        'focus:border-accent/70 focus:shadow-[inset_0_1px_2px_rgb(0_0_0/0.35),0_0_0_4px_rgb(var(--accent)/0.16)]',
+        'glass-well transition-[border-color,box-shadow] duration-200 ease-out hover:border-control',
+        'focus:border-accent focus:shadow-[inset_0_1px_2px_rgb(0_0_0/0.35),0_0_0_3px_rgb(var(--accent)/0.2)]',
         className
       )}
       {...props}

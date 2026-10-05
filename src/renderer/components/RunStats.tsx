@@ -86,7 +86,7 @@ export function RunStats({ output, costs, videoSpeed }: RunStatsProps): React.JS
       icon={<CircleDollarSign />}
       label="API cost"
       hint={percentLess && <HoverHint />}
-      value={costs ? `${costs.cost_incomplete ? '≥ ' : ''}${cost === costs.total_estimated_cost_usd ? formatUsd(cost) : `$${cost.toFixed(2)}`}` : '—'}
+      value={costs ? `${costs.cost_incomplete ? '≥ ' : ''}${cost === costs.total_estimated_cost_usd ? formatUsd(cost) : `$${cost.toFixed(2)}`}` : '–'}
       final={costs ? `${costs.cost_incomplete ? 'At least ' : ''}${formatUsd(costs.total_estimated_cost_usd)}` : 'Not recorded'}
       sub={percentLess ? <Win>{percentLess}% below OpusClip credit rate</Win> : costs ? costParts(costs) : 'Not recorded for this run'}
     />
@@ -136,7 +136,7 @@ export function RunStats({ output, costs, videoSpeed }: RunStatsProps): React.JS
         index={3}
         icon={<CalendarClock />}
         label="Created"
-        value={created ? created.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—'}
+        value={created ? created.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '–'}
         sub={created && dayLabel(created)}
       />
     </div>

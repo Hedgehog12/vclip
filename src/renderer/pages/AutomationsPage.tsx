@@ -359,7 +359,7 @@ export function AutomationsPage({ onNavigate }: { onNavigate: (page: PageName) =
                         {counts.needs_review > 0 && <><Sep /><span className="text-warning">{counts.needs_review} to check</span></>}
                         <Sep />
                         {selected.enabled
-                          ? <span>Next run <span className="text-ink">{nextRunLabel(selected.times, selected.timezone) ?? '—'}</span></span>
+                          ? <span>Next run <span className="text-ink">{nextRunLabel(selected.times, selected.timezone) ?? '–'}</span></span>
                           : <span>Paused</span>}
                         <Sep />
                         <span>Last run <span className="text-ink">{selected.lastRunAt ? formatRelativeDate(selected.lastRunAt) : 'never'}</span></span>
@@ -475,7 +475,7 @@ export function AutomationsPage({ onNavigate }: { onNavigate: (page: PageName) =
                   <Row
                     label="Schedule"
                     labelId="automation-schedule"
-                    hint="One clip posts at each time, daily. VlasiichukClip must be open; after sleep, a run can start up to 5 minutes late."
+                    hint="One clip posts at each time, daily. vClip must be open; after sleep, a run can start up to 5 minutes late."
                   >
                     <div role="group" aria-labelledby="automation-schedule" className="flex flex-wrap items-center gap-1">
                       {draft.times.map((time) => (

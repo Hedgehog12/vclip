@@ -28,10 +28,10 @@ export function Checkbox({ checked, indeterminate, onChange, label, disabled, va
       className={cn(
         'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] transition-[background,box-shadow] duration-150',
         on
-          ? 'bg-accent text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_0_0_1px_rgb(var(--accent)/0.7)]'
+          ? 'bg-accent text-accent-ink'
           : variant === 'overlay'
             ? 'bg-black/35 text-transparent shadow-[inset_0_0_0_1.5px_rgb(255_255_255/0.55)] backdrop-blur-md hover:shadow-[inset_0_0_0_1.5px_rgb(255_255_255/0.85)]'
-            : 'bg-black/25 text-transparent shadow-[inset_0_0_0_1px_rgb(255_255_255/0.22),inset_0_1px_2px_rgb(0_0_0/0.3)] hover:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.4),inset_0_1px_2px_rgb(0_0_0/0.3)]',
+            : 'bg-canvas/60 text-transparent shadow-[inset_0_0_0_1px_rgb(var(--control))] hover:shadow-[inset_0_0_0_1px_rgb(var(--ink-subtle))]',
         disabled && 'cursor-not-allowed opacity-40',
         className
       )}

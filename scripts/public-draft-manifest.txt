@@ -38,10 +38,10 @@ vlasiichukclip/eslint.config.mjs
 vlasiichukclip/package-lock.json
 vlasiichukclip/package.json
 vlasiichukclip/postcss.config.js
-vlasiichukclip/resources/vlasiichukclip-icon.png
-vlasiichukclip/resources/vlasiichukclip-icon.svg
-vlasiichukclip/resources/vlasiichukclip-logo-light.svg
-vlasiichukclip/resources/vlasiichukclip-logo.svg
+vlasiichukclip/resources/vclip-icon.png
+vlasiichukclip/resources/vclip-icon.svg
+vlasiichukclip/resources/vclip-logo-light.svg
+vlasiichukclip/resources/vclip-logo.svg
 vlasiichukclip/resources/vlasiichuk-mark.svg
 vlasiichukclip/scripts/build-ffmpeg-mac.sh
 vlasiichukclip/scripts/export-public-draft.sh
@@ -84,9 +84,8 @@ vlasiichukclip/src/main/zernio/service.ts
 vlasiichukclip/src/main/zernio/workspace-cache.ts
 vlasiichukclip/src/preload/index.ts
 vlasiichukclip/src/renderer/App.tsx
-vlasiichukclip/src/renderer/assets/fonts/Geist-OFL.txt
-vlasiichukclip/src/renderer/assets/fonts/Geist-Variable.woff2
-vlasiichukclip/src/renderer/assets/fonts/GeistMono-Variable.woff2
+vlasiichukclip/src/renderer/assets/fonts/Inter-OFL.txt
+vlasiichukclip/src/renderer/assets/fonts/Inter-Variable.woff2
 vlasiichukclip/src/renderer/components/AddToAutomationDialog.tsx
 vlasiichukclip/src/renderer/components/ApiKeyInput.tsx
 vlasiichukclip/src/renderer/components/CaptionPresetPicker.tsx
@@ -101,7 +100,7 @@ vlasiichukclip/src/renderer/components/SetupCard.tsx
 vlasiichukclip/src/renderer/components/Sidebar.tsx
 vlasiichukclip/src/renderer/components/SourcePicker.tsx
 vlasiichukclip/src/renderer/components/UpdateModal.tsx
-vlasiichukclip/src/renderer/components/brand/VlasiichukClipLogo.tsx
+vlasiichukclip/src/renderer/components/brand/VClipLogo.tsx
 vlasiichukclip/src/renderer/components/ui/Badge.tsx
 vlasiichukclip/src/renderer/components/ui/Button.tsx
 vlasiichukclip/src/renderer/components/ui/Callout.tsx

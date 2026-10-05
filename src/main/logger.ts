@@ -39,7 +39,7 @@ function rotateIfNeeded(path: string): void {
       renameSync(path, `${path}.old`)
     }
   } catch {
-    // ignore rotation errors — logging must never throw
+    // ignore rotation errors: logging must never throw
   }
 }
 

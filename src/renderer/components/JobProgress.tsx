@@ -154,7 +154,7 @@ export function JobProgress({ job, onCancel, leading }: JobProgressProps): React
         <p className="text-xs leading-relaxed text-ink-subtle">
           {queued
             ? 'Starts automatically when a running job finishes.'
-            : 'Long videos can take a while. Keep using VlasiichukClip or queue more videos; progress shows in the sidebar.'}
+            : 'Long videos can take a while. Keep using vClip or queue more videos; progress shows in the sidebar.'}
         </p>
         <Button onClick={onCancel}>{queued ? 'Remove from queue' : 'Cancel'}</Button>
       </div>

@@ -195,7 +195,7 @@ export async function generateAutomationMetadata(transcript: string, title: stri
   for (let attempt = 0; attempt < 2; attempt++) {
     let response: Record<string, unknown>
     try { response = await providerResponse(await fetch(endpoint('VLASIICHUKCLIP_E2E_OPENROUTER_URL', 'https://openrouter.ai/api/v1/chat/completions'), {
-      method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://github.com/Hedgehog12/vlasiichukclip', 'X-Title': 'VlasiichukClip' },
+      method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://github.com/Hedgehog12/vlasiichukclip', 'X-Title': 'vClip' },
       redirect: 'error',
       signal: AbortSignal.timeout(120_000),
       body: JSON.stringify({ model: MODEL, messages: [

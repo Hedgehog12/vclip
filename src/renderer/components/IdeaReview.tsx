@@ -341,7 +341,7 @@ function DecisionButtons({ decision, onDecide, locked, compact = false }: {
 function ScoreChip({ score }: { score: number }): React.JSX.Element {
   return (
     <span className="inline-flex items-center gap-1 font-mono text-xs tabular text-ink-muted" title="AI score out of 10">
-      <TrendingUp className="h-3.5 w-3.5 text-brand-gold" />
+      <TrendingUp className="h-3.5 w-3.5 text-brand-star" />
       {(score * 10).toFixed(1)}
     </span>
   )
@@ -391,7 +391,7 @@ function IdeaCard({ idea, decision, sourcePath, previewing, onPreview, onDecide,
 
       {idea.hook && (
         <p className={cn('rounded-xl bg-white/[0.04] px-3 py-2 text-sm leading-relaxed', coldOpen ? 'text-ink' : 'text-ink-subtle line-through decoration-white/20')} data-selectable>
-          <span className="mr-2 text-2xs font-semibold uppercase tracking-wide text-brand-gold">Hook · {formatTimecode(idea.hook.startMs)} · {formatDuration(idea.hook.endMs - idea.hook.startMs)}</span>
+          <span className="mr-2 text-2xs font-medium text-brand-star">Hook · {formatTimecode(idea.hook.startMs)} · {formatDuration(idea.hook.endMs - idea.hook.startMs)}</span>
           “{idea.hook.text}”
         </p>
       )}

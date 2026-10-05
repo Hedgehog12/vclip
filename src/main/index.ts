@@ -82,7 +82,7 @@ function createWindow(): void {
     minWidth: 720,
     minHeight: 520,
     show: false,
-    title: 'VlasiichukClip',
+    title: 'vClip',
     icon: is.dev ? devIcon : undefined,
     // macOS-only window chrome: 'hiddenInset' and trafficLightPosition are
     // ignored on other platforms, so only pass them on darwin.
@@ -98,7 +98,7 @@ function createWindow(): void {
     // backdrop (html.vibrant in globals.css). Elsewhere, a solid base.
     ...(process.platform === 'darwin'
       ? { vibrancy: 'under-window' as const, visualEffectState: 'active' as const, backgroundColor: '#00000000' }
-      : { backgroundColor: '#07080c' }),
+      : { backgroundColor: '#06070B' }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,

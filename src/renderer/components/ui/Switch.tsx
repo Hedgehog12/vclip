@@ -20,16 +20,16 @@ export function Switch({ checked, onChange, disabled, label, className }: Switch
       className={cn(
         'relative inline-flex h-6 w-[42px] shrink-0 items-center rounded-full transition-[background,box-shadow] duration-200 ease-out',
         checked
-          ? 'bg-accent shadow-[inset_0_1px_0_rgb(255_255_255/0.3),0_0_0_1px_rgb(var(--accent)/0.6)]'
-          : 'bg-black/30 shadow-[inset_0_1px_2px_rgb(0_0_0/0.4),inset_0_0_0_1px_rgb(255_255_255/0.12)]',
+          ? 'bg-accent'
+          : 'bg-hair/10 shadow-[inset_0_0_0_1px_rgb(var(--control)/0.8)]',
         disabled && 'opacity-40',
         className
       )}
     >
       <span
         className={cn(
-          'block h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.45),0_0_0_0.5px_rgb(0_0_0/0.1)] transition-transform duration-300 ease-spring',
-          checked ? 'translate-x-5' : 'translate-x-0.5'
+          'block h-5 w-5 rounded-full transition-[transform,background-color] duration-300 ease-spring',
+          checked ? 'translate-x-5 bg-canvas' : 'translate-x-0.5 bg-ink-subtle'
         )}
       />
     </button>

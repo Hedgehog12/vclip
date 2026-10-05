@@ -1,6 +1,6 @@
 // Single source for product identity, shared by the main process (menu,
 // window title) and the renderer.
-export const APP_NAME = 'VlasiichukClip'
+export const APP_NAME = 'vClip'
 export const APP_TAGLINE = 'Open-source AI video clipping'
 
 export const REPO_URL = 'https://github.com/Hedgehog12/vlasiichukclip'

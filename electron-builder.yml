@@ -31,8 +31,8 @@ extraResources:
     to: LICENSE
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
-  - from: src/renderer/assets/fonts/Geist-OFL.txt
-    to: Geist-OFL.txt
+  - from: src/renderer/assets/fonts/Inter-OFL.txt
+    to: Inter-OFL.txt
   - from: bridge
     to: bridge
     filter:

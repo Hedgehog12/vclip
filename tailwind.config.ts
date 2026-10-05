@@ -22,32 +22,42 @@ const config: Config = {
           subtle: channel('ink-subtle'),
           faint: channel('ink-faint')
         },
+        // Lines and fills are tinted with the silver `hair` channel, not pure white.
+        hair: channel('hair'),
         line: {
-          DEFAULT: 'rgb(255 255 255 / 0.09)',
-          strong: 'rgb(255 255 255 / 0.16)'
+          DEFAULT: 'rgb(var(--hair) / 0.09)',
+          strong: 'rgb(var(--hair) / 0.16)'
         },
         fill: {
-          DEFAULT: 'rgb(255 255 255 / 0.05)',
-          hover: 'rgb(255 255 255 / 0.08)',
-          selected: 'rgb(255 255 255 / 0.11)'
+          DEFAULT: 'rgb(var(--hair) / 0.05)',
+          hover: 'rgb(var(--hair) / 0.08)',
+          selected: 'rgb(var(--hair) / 0.11)'
         },
+        // Input and switch borders, 3:1 against the panel.
+        control: channel('control'),
+        // Nebula: chosen, live, focus. Never fills the main button (that is brushed silver).
         accent: {
           DEFAULT: channel('accent'),
           hover: channel('accent-hover'),
-          ink: channel('accent-ink'),
-          cyan: channel('accent-cyan')
+          ink: channel('accent-ink')
+        },
+        silver: {
+          DEFAULT: channel('silver'),
+          light: channel('silver-light'),
+          shade: channel('silver-shade')
         },
         success: channel('success'),
         danger: channel('danger'),
         warning: channel('warning'),
         brand: {
-          blue: '#38ccff',
-          gold: '#ffd500'
+          // Warm star: the virality score icon.
+          star: channel('star-warm')
         }
       },
       fontFamily: {
-        sans: ['Geist', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
-        mono: ['"Geist Mono"', '"SF Mono"', 'ui-monospace', 'Menlo', 'monospace']
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+        // One family: `font-mono` also maps to Inter. Use the `tabular` class for aligned numbers.
+        mono: ['Inter', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif']
       },
       fontSize: {
         '2xs': ['11px', '14px'],
@@ -72,11 +82,11 @@ const config: Config = {
         '3xl': '18px'
       },
       boxShadow: {
-        panel: 'inset 0 1px 0 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.25), 0 18px 48px -24px rgb(0 0 0 / 0.6)',
-        pop: 'inset 0 1px 0 rgb(255 255 255 / 0.1), 0 40px 100px -24px rgb(0 0 0 / 0.8), 0 12px 32px -12px rgb(0 0 0 / 0.55)',
+        panel: 'inset 0 1px 0 0 rgb(255 255 255 / 0.05), 0 1px 2px rgb(0 0 0 / 0.3), 0 18px 48px -24px rgb(0 0 0 / 0.7)',
+        pop: 'inset 0 1px 0 rgb(255 255 255 / 0.12), 0 40px 100px -24px rgb(0 0 0 / 0.85), 0 12px 32px -12px rgb(0 0 0 / 0.6)',
         accent: '0 0 0 1px rgb(var(--accent) / 0.5)',
         'accent-ring':
-          'inset 0 1px 0 rgb(255 255 255 / 0.12), 0 0 0 1px rgb(var(--accent) / 0.9), 0 0 0 4px rgb(var(--accent) / 0.18)'
+          'inset 0 1px 0 rgb(255 255 255 / 0.08), 0 0 0 1px rgb(var(--accent) / 0.8), 0 0 0 4px rgb(var(--accent) / 0.14)'
       },
       transitionTimingFunction: {
         out: 'cubic-bezier(0.16, 1, 0.3, 1)',

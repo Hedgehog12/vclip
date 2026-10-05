@@ -1,12 +1,12 @@
-# VlasiichukClip app icon
+# vClip app icon
 
-The icon is the vlasiichuk.pro mark: a `#1d1d1f` circle with a white line-art "V" and a small nested check. The brand rules live in `vlasiichuk.pro/BRAND.md` (never stretch, recolor, or add shadows or gradients).
+The icon is the vlasiichuk.pro "Nebula face" V: the left face in silver light (`#F1F3F8`), the right face in Nebula (`#A9B8FF`), on a dark rounded square (`#1A1F2C` to `#10131C`). One mark serves every vlasiichuk.pro tool. The brand rules live in `vlasiichuk.pro/BRAND.md` and `vlasiichuk.pro/v2/BRAND.md` (never recolor, rotate, outline or add shadows or glows).
 
 ## Source and exports
 
-- **Vector masters:** `resources/vlasiichukclip-icon.svg` (light-background variant, used for the OS app icon) and `resources/vlasiichuk-mark.svg` (dark-background variant: `#fbfbfd` circle, `#1d1d1f` V, used inside the dark app UI).
-- **Lockups:** `resources/vlasiichukclip-logo.svg` (dark surfaces) and `resources/vlasiichukclip-logo-light.svg` (light surfaces), used by the README. The in-app lockup is drawn inline in `src/renderer/components/brand/VlasiichukClipLogo.tsx` so it uses the app's Geist font.
-- **App assets:** `build/icon.png` (1024px), `build/icon.ico` (Windows: 16–256px), `build/icon.icns` (macOS) and `resources/vlasiichukclip-icon.png`.
+- **Vector masters:** `resources/vclip-icon.svg` (the OS app icon and the in-app icon tile) and `resources/vlasiichuk-mark.svg` (the V alone, used in the sidebar). Both are copied from `vlasiichuk.pro/v2.1/logo/` (`icon-dark.svg`, `vmark-dark.svg`).
+- **Lockups:** `resources/vclip-logo.svg` (dark surfaces) and `resources/vclip-logo-light.svg` (light surfaces), used by the README. They are `lockup-tool-dark.svg` and `lockup-tool-paper.svg` from the same folder, with the text drawn as outlines. The in-app lockup is `src/renderer/components/brand/VClipLogo.tsx`, which sets the text live in Inter.
+- **App assets:** `build/icon.png` (1024px), `build/icon.ico` (Windows: 16–256px), `build/icon.icns` (macOS) and `resources/vclip-icon.png`.
 
 Regenerate the app assets on any OS with the engine's Python (it already has Pillow):
 

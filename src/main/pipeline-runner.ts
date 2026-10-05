@@ -300,29 +300,29 @@ export function preflightCheck(paths: {
 }): PreflightResult {
   if (app.isPackaged) {
     const missing = (['ffmpeg', 'ffprobe', 'yt-dlp'] as const).find((name) => !existsSync(resolveBinary(name)))
-    if (missing) return { ok: false, error: `Bundled ${missing} is missing.`, hint: 'Reinstall VlasiichukClip to repair the clipping tools.' }
+    if (missing) return { ok: false, error: `Bundled ${missing} is missing.`, hint: 'Reinstall vClip to repair the clipping tools.' }
   }
   if (!existsSync(paths.bridgePath)) {
     return {
       ok: false,
       error: `Bridge runner script not found at: ${paths.bridgePath}`,
       hint: app.isPackaged
-        ? 'This is a VlasiichukClip packaging bug — bridge_runner.py is missing from the app bundle. Please reinstall or report this issue.'
+        ? 'This is a vClip packaging bug: bridge_runner.py is missing from the app bundle. Please reinstall or report this issue.'
         : 'Expected to find bridge/bridge_runner.py in the repo. Did you delete it?'
     }
   }
   if (!paths.enginePath || !existsSync(paths.enginePath)) {
     return {
       ok: false,
-      error: `VlasiichukClip clipping engine not found at: ${paths.enginePath}`,
-      hint: 'Reinstall VlasiichukClip or restore the engine/ directory in your source checkout.'
+      error: `vClip clipping engine not found at: ${paths.enginePath}`,
+      hint: 'Reinstall vClip or restore the engine/ directory in your source checkout.'
     }
   }
   if (!existsSync(join(paths.enginePath, 'clip_engine', 'bridge_contract.py'))) {
     return {
       ok: false,
-      error: `VlasiichukClip clipping engine is incomplete at: ${paths.enginePath}`,
-      hint: 'Reinstall VlasiichukClip or restore engine/clip_engine/bridge_contract.py in your source checkout.'
+      error: `vClip clipping engine is incomplete at: ${paths.enginePath}`,
+      hint: 'Reinstall vClip or restore engine/clip_engine/bridge_contract.py in your source checkout.'
     }
   }
   // For absolute python paths, verify existence up-front. For bare commands
@@ -451,7 +451,7 @@ export function startClipJob(
   let jobWorkRoot: string
   try { jobWorkRoot = workRoot() }
   catch {
-    reportError({ jobId, message: 'VlasiichukClip could not create a private temporary work folder.' })
+    reportError({ jobId, message: 'vClip could not create a private temporary work folder.' })
     exitWithoutProcess()
     return
   }

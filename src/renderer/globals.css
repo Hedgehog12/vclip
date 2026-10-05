@@ -2,48 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Geist is vendored (SIL OFL 1.1, see assets/fonts/Geist-OFL.txt) so the app
-   renders identically offline. */
+/* Inter is vendored (SIL OFL 1.1, see assets/fonts/Inter-OFL.txt) so the app
+   renders identically offline. One family for everything; numbers use .tabular. */
 @font-face {
-  font-family: 'Geist';
-  src: url('./assets/fonts/Geist-Variable.woff2') format('woff2');
+  font-family: 'Inter';
+  src: url('./assets/fonts/Inter-Variable.woff2') format('woff2');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('./assets/fonts/GeistMono-Variable.woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-/* VlasiichukClip glass. Surfaces are flat translucent layers over one solid dark
-   backdrop. No gradients anywhere: every fill is a single colour. Ink stays
-   opaque; colour comes from the video, the one primary action, chosen options
-   and status. */
+/* vClip, vlasiichuk.pro Moonsilver. Surfaces are flat silver-tinted layers over
+   one solid dark backdrop. The brushed silver main button is the one allowed
+   gradient; everything else is a single colour. Ink stays opaque; colour comes
+   from the video, chosen options (Nebula) and status. Tokens follow
+   vlasiichuk.pro/v2.1/app/app-theme.css. */
 @layer base {
   :root {
-    --canvas: 7 8 12;          /* backdrop base under the ambient light */
-    --surface: 14 15 21;
-    --raised: 22 24 31;
-    --overlay: 26 28 36;
+    --canvas: 6 7 11;          /* #06070B Void: window backdrop */
+    --surface: 16 19 28;       /* #10131C Deep: solid panels, dialog fallback */
+    --raised: 23 27 38;        /* #171B26 Raised: title bars, popovers */
+    --overlay: 29 34 48;       /* #1D2230 menus with reduced transparency */
 
-    --ink: 247 248 252;
-    --ink-muted: 170 174 188;
-    --ink-subtle: 124 129 144;
-    --ink-faint: 84 89 103;
+    --ink: 214 219 230;        /* #D6DBE6 Silver: titles, names, values */
+    --ink-muted: 180 187 203;  /* #B4BBCB Frost: descriptions, body text */
+    --ink-subtle: 131 139 157; /* #838B9D Muted: labels, metadata */
+    --ink-faint: 91 98 115;    /* #5B6273 disabled text, placeholders (never for text that must be read) */
 
-    --accent: 92 143 255;
-    --accent-hover: 134 176 255;
-    --accent-ink: 255 255 255;
-    --accent-cyan: 56 204 255;  /* legacy cyan accent */
+    --hair: 214 219 230;       /* base for lines and fills: rgb(var(--hair) / 0.09) */
+    --control: 100 108 129;    /* #646C81 input and switch borders, 3:1 */
 
-    --success: 74 222 128;
-    --danger: 255 107 110;
-    --warning: 251 191 36;
+    --accent: 169 184 255;     /* #A9B8FF Nebula: chosen, live, focus. Never a main button */
+    --accent-hover: 195 206 255; /* #C3CEFF Nebula, lighter */
+    --accent-ink: 6 7 11;      /* #06070B text on Nebula fills */
+
+    --silver-light: 241 243 248; /* #F1F3F8 brushed silver, top light */
+    --silver: 214 219 230;     /* #D6DBE6 brushed silver, middle */
+    --silver-shade: 188 195 209; /* #BCC3D1 brushed silver, lower edge */
+
+    --success: 127 214 168;    /* #7FD6A8 ready, saved, published */
+    --warning: 232 194 122;    /* #E8C27A needs a look, setup incomplete */
+    --danger: 242 147 155;     /* #F2939B failed */
+    --star-warm: 243 231 196;  /* #F3E7C4 virality score star */
+
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
     color-scheme: dark;
   }
@@ -100,13 +102,18 @@
     cursor: not-allowed;
   }
 
+  /* Line icons are 1.5 wide, to match Inter. Small check marks keep their explicit heavier stroke. */
+  svg.lucide:not([stroke-width='2.5']):not([stroke-width='3']):not([stroke-width='3.5']) {
+    stroke-width: 1.5;
+  }
+
   :focus-visible {
-    outline: 2px solid rgb(var(--accent) / 0.75);
+    outline: 2px solid rgb(var(--accent) / 0.8);
     outline-offset: 2px;
   }
 
   ::selection {
-    background: rgb(var(--accent) / 0.35);
+    background: rgb(var(--accent) / 0.3);
   }
 
   select option {
@@ -144,9 +151,25 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Uppercase micro-label used above groups of controls. */
+  /* Page titles: large and light. Thin weights only at 24px and up. */
+  .title-page {
+    font-size: 30px;
+    line-height: 36px;
+    font-weight: 300;
+    letter-spacing: -0.025em;
+    color: rgb(var(--ink));
+  }
+
+  .title-hero {
+    font-weight: 260;
+    letter-spacing: -0.035em;
+    line-height: 1.02;
+    color: rgb(var(--ink));
+  }
+
+  /* Label above a group of controls. Sentence case, medium, muted. Never uppercase. */
   .eyebrow {
-    @apply text-2xs font-semibold uppercase tracking-[0.1em] text-ink-subtle;
+    @apply text-xs font-medium text-ink-subtle;
   }
 
   /* ─── Backdrop ───────────────────────────────────────────────────────── */
@@ -163,36 +186,37 @@
 
   /* ─── Materials ──────────────────────────────────────────────────────── */
 
-  /* Panel glass: flat translucent fill, a 1px rim drawn as an inset ring, and
-     a soft floating shadow. Don't add a `border` utility; the rim is the edge.
+  /* Panel: flat silver-tinted fill, a 1px rim drawn as an inset ring, and a
+     black depth shadow. Don't add a `border` utility; the rim is the edge.
      Needs a rounded-* class. */
   .glass {
     position: relative;
-    background: rgb(255 255 255 / 0.045);
+    background: rgb(var(--hair) / 0.035);
     box-shadow:
-      inset 0 0 0 1px rgb(255 255 255 / 0.08),
-      0 1px 2px rgb(0 0 0 / 0.25),
-      0 18px 48px -24px rgb(0 0 0 / 0.6);
+      inset 0 0 0 1px rgb(var(--hair) / 0.09),
+      0 1px 2px rgb(0 0 0 / 0.3),
+      0 18px 48px -24px rgb(0 0 0 / 0.7);
   }
 
-  /* Heavier glass for surfaces that float over content: dialogs, sticky
-     toolbars, popovers. Blurs whatever scrolls beneath it. */
+  /* Floating glass: dialogs, menus, sticky bars, toasts. Blurs whatever scrolls
+     beneath it and catches light along its top edge. */
   .glass-thick {
     position: relative;
-    background: rgb(25 27 36 / 0.8);
-    -webkit-backdrop-filter: blur(40px) saturate(170%);
-    backdrop-filter: blur(40px) saturate(170%);
+    background: rgb(var(--surface) / 0.78);
+    -webkit-backdrop-filter: blur(32px) saturate(160%);
+    backdrop-filter: blur(32px) saturate(160%);
     box-shadow:
-      inset 0 0 0 1px rgb(255 255 255 / 0.1),
-      0 40px 100px -24px rgb(0 0 0 / 0.8),
-      0 12px 32px -12px rgb(0 0 0 / 0.55);
+      inset 0 1px 0 rgb(255 255 255 / 0.12),
+      inset 0 0 0 1px rgb(var(--hair) / 0.12),
+      0 40px 100px -24px rgb(0 0 0 / 0.85),
+      0 12px 32px -12px rgb(0 0 0 / 0.6);
   }
 
   /* Nested tile inside a panel: rows, option cards, sub-sections. */
   .glass-tile {
-    background: rgb(255 255 255 / 0.033);
-    border: 1px solid rgb(255 255 255 / 0.08);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+    background: rgb(var(--hair) / 0.03);
+    border: 1px solid rgb(var(--hair) / 0.09);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
   }
 
   .glass-tile-hover {
@@ -202,81 +226,91 @@
   }
 
   .glass-tile-hover:hover {
-    background: rgb(255 255 255 / 0.055);
-    border-color: rgb(255 255 255 / 0.14);
+    background: rgb(var(--hair) / 0.055);
+    border-color: rgb(var(--hair) / 0.16);
   }
 
-  /* Chosen option: accent-tinted glass with a soft halo. */
+  /* Chosen option: Nebula tint, Nebula edge, a thin crisp ring. */
   .glass-selected,
   .glass-selected:hover {
-    background: rgb(var(--accent) / 0.12);
-    border-color: rgb(var(--accent) / 0.7);
+    background: rgb(var(--accent) / 0.09);
+    border-color: rgb(var(--accent) / 0.65);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.12),
-      0 0 0 3px rgb(var(--accent) / 0.14);
+      inset 0 1px 0 rgb(255 255 255 / 0.06),
+      0 0 0 3px rgb(var(--accent) / 0.12);
   }
 
-  /* Recessed well for text inputs and inset lists. */
+  /* Recessed well for text inputs and inset lists. The border keeps 3:1 against the panel. */
   .glass-well {
-    background: rgb(0 0 0 / 0.26);
-    border: 1px solid rgb(255 255 255 / 0.085);
-    box-shadow:
-      inset 0 1px 2px rgb(0 0 0 / 0.35),
-      0 1px 0 rgb(255 255 255 / 0.035);
+    background: rgb(var(--canvas) / 0.6);
+    border: 1px solid rgb(var(--control) / 0.7);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.35);
+    transition:
+      border-color 150ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .glass-well:hover {
+    border-color: rgb(var(--control));
   }
 
   /* Small label floating over video or artwork. */
   .glass-chip {
-    background: rgb(10 12 18 / 0.45);
-    border: 1px solid rgb(255 255 255 / 0.14);
+    background: rgb(var(--canvas) / 0.5);
+    border: 1px solid rgb(var(--hair) / 0.16);
     -webkit-backdrop-filter: blur(14px) saturate(160%);
     backdrop-filter: blur(14px) saturate(160%);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
   }
 
   /* ─── Controls ───────────────────────────────────────────────────────── */
 
-  /* The one primary action: a solid accent capsule. */
+  /* The one main action per screen: brushed silver with dark text. Nebula never
+     fills a main button. This is the only gradient in the app. */
   .btn-primary {
-    color: rgb(var(--accent-ink));
-    background: rgb(var(--accent));
+    color: rgb(var(--canvas));
+    background: linear-gradient(180deg, rgb(var(--silver-light)) 0%, rgb(var(--silver)) 52%, rgb(var(--silver-shade)) 100%);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.4),
-      inset 0 -1px 0 rgb(0 0 0 / 0.14),
-      0 0 0 1px rgb(var(--accent) / 0.6);
-    text-shadow: 0 1px 1px rgb(0 0 0 / 0.18);
+      inset 0 1px 0 rgb(255 255 255 / 0.9),
+      inset 0 -1px 0 rgb(6 7 11 / 0.16),
+      0 1px 1px rgb(0 0 0 / 0.45),
+      0 10px 20px -12px rgb(0 0 0 / 0.9);
+    font-weight: 500;
   }
 
   .btn-primary:hover:not(:disabled) {
-    filter: brightness(1.08) saturate(1.05);
+    filter: brightness(1.05);
+  }
+
+  .btn-primary:active:not(:disabled) {
+    background: linear-gradient(180deg, rgb(var(--silver-shade)) 0%, rgb(var(--silver)) 60%, rgb(var(--silver-light)) 100%);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.45),
-      inset 0 -1px 0 rgb(0 0 0 / 0.14),
-      0 0 0 1px rgb(var(--accent) / 0.7);
+      inset 0 1px 3px rgb(6 7 11 / 0.28),
+      0 1px 1px rgb(0 0 0 / 0.4);
   }
 
   .btn-primary:disabled {
-    color: rgb(255 255 255 / 0.45);
-    background: rgb(var(--accent) / 0.22);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 0 0 1px rgb(var(--accent) / 0.25);
-    text-shadow: none;
+    color: rgb(var(--ink-faint));
+    background: rgb(var(--hair) / 0.07);
+    box-shadow: inset 0 0 0 1px rgb(var(--hair) / 0.06);
+    filter: none;
   }
 
   /* Glass capsule for secondary actions. */
   .btn-glass {
-    background: rgb(255 255 255 / 0.075);
+    background: rgb(var(--hair) / 0.07);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.14),
-      inset 0 0 0 1px rgb(255 255 255 / 0.09),
+      inset 0 1px 0 rgb(255 255 255 / 0.1),
+      inset 0 0 0 1px rgb(var(--hair) / 0.09),
       0 1px 2px rgb(0 0 0 / 0.3);
   }
 
   .btn-glass:hover:not(:disabled) {
-    background: rgb(255 255 255 / 0.11);
+    background: rgb(var(--hair) / 0.11);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.18),
-      inset 0 0 0 1px rgb(255 255 255 / 0.14),
-      0 4px 12px -4px rgb(0 0 0 / 0.4);
+      inset 0 1px 0 rgb(255 255 255 / 0.14),
+      inset 0 0 0 1px rgb(var(--hair) / 0.14),
+      0 4px 12px -4px rgb(0 0 0 / 0.45);
   }
 }
 
@@ -291,14 +325,14 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.1);
+  background: rgb(var(--hair) / 0.12);
   border: 4px solid transparent;
   background-clip: padding-box;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(255 255 255 / 0.2);
+  background-color: rgb(var(--hair) / 0.22);
 }
 
 ::-webkit-scrollbar-corner {

@@ -1,6 +1,6 @@
-# VlasiichukClip Design System: Flat Glass
+# vClip Design System: Moonsilver Flat Glass
 
-VlasiichukClip is built from flat translucent layers over one solid dark backdrop. **There are no gradients anywhere, and no coloured glows**: every fill is a single colour, and the only shadows are black depth shadows and crisp 1px rings. Surfaces float, and the controls are capsules. It is still a working tool people keep open for hours, so the glass stays calm and the video stays the loudest thing on screen.
+vClip (by vlasiichuk.pro) is built from flat silver-tinted layers over one solid dark backdrop, in the vlasiichuk.pro **Moonsilver** brand (`vlasiichuk.pro/v2.1`, app kit in `v2.1/app/`). **The only gradient is the brushed silver main button, and there are no coloured glows**: every other fill is a single colour, and the only shadows are black depth shadows and crisp 1px rings. Surfaces float, and the controls are capsules. It is still a working tool people keep open for hours, so the glass stays calm and the video stays the loudest thing on screen.
 
 Tokens live in `src/renderer/globals.css` (as RGB channels, plus the material classes) and are mapped to Tailwind names in `tailwind.config.ts`. Reusable pieces live in `src/renderer/components/ui/`. Use those before writing new class strings.
 
@@ -9,9 +9,9 @@ Tokens live in `src/renderer/globals.css` (as RGB channels, plus the material cl
 ## Principles
 
 1. **Layers, not boxes.** Every surface is a material (below) sitting at a depth: backdrop → panels → tiles inside panels → floating bars and dialogs. Don't draw a flat grey rectangle.
-2. **Flat fills, crisp edges.** Every fill is one colour (no `linear-`/`radial-gradient`, no `bg-gradient-*`, no blurred colour blobs, no coloured blurred shadows). Panels have an even 1px rim; controls may have a 1px inner highlight on their top edge. Only black shadows blur.
+2. **Flat fills, crisp edges.** Every fill is one colour, except the brushed silver `btn-primary` (no other `linear-`/`radial-gradient`, no `bg-gradient-*`, no blurred colour blobs, no coloured blurred shadows). Panels have an even 1px rim; controls may have a 1px inner highlight on their top edge. Only black shadows blur.
 3. **Video first.** Thumbnails, previews and caption samples carry the colour. Glass is neutral so it never competes with footage.
-4. **Accent is solid and scarce.** The blue accent is for the primary action, chosen options, live progress, the active nav icon and the drop target. Selection elsewhere is a brighter pane of glass, not blue.
+4. **Nebula is scarce, and never the main button.** The main action is brushed silver with dark text. Nebula (the accent) marks what is chosen, live or focused: selected cards, live progress, the active nav icon, the focus ring and the drop target. Selection elsewhere is a brighter pane of glass.
 5. **Only failure earns a hue.** Red means something broke, amber means setup is incomplete or a result needs a look, green means found/ready/saved.
 6. **Say what happened.** Errors show the engine's actual message and a suggested fix, never just "Something went wrong".
 
@@ -28,7 +28,7 @@ Tokens live in `src/renderer/globals.css` (as RGB channels, plus the material cl
 | `glass-selected` | Flat accent tint with an accent border and a crisp 3px ring. Combine with `glass-tile`. | The chosen option card or tile. |
 | `glass-well` | Recessed dark well with inner shadow. | Text inputs, selects, text areas, inset lists (system check). |
 | `glass-chip` | Small frosted label with blur. | Anything overlaid on video or artwork (score, duration, counts). |
-| `btn-primary` / `btn-glass` | Solid accent capsule / flat glass capsule. | Used by `Button`; don't apply directly. |
+| `btn-primary` / `btn-glass` | Brushed silver capsule with dark text (the one gradient) / flat glass capsule. | Used by `Button`; don't apply directly. |
 | `scroll-edge` | Solid `canvas` title-bar strip that content scrolls under. | Layout only. |
 
 Blur is expensive. Only `glass-thick` and `glass-chip` use `backdrop-filter`. Panels and tiles don't need it: they sit on the solid backdrop.
@@ -41,18 +41,20 @@ Blur is expensive. Only `glass-thick` and `glass-chip` use `backdrop-filter`. Pa
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `canvas` | `#07080C` | Backdrop base |
-| `surface` · `raised` · `overlay` | `#0E0F15` · `#16181F` · `#1A1C24` | Solid fallbacks (options menus, reduced transparency) |
-| `ink` | `#F7F8FC` | Primary text, active icons |
-| `ink-muted` | `#AAAEBC` | Secondary text, descriptions |
-| `ink-subtle` | `#7C8190` | Hints, metadata, eyebrows |
-| `ink-faint` | `#545967` | Placeholders, disabled, nav group labels |
-| `line` / `line-strong` | white 9% / 16% | Hairlines and dividers (`divide-white/[0.06]` inside tiles) |
-| `fill` / `fill-hover` / `fill-selected` | white 5% / 8% / 11% | Plain hover and pressed surfaces |
-| `accent` / `accent-hover` | `#5C8FFF` / `#86B0FF` | Primary buttons, chosen options, progress, focus ring |
-| `accent-cyan` | `#38CCFF` | Legacy cyan accent. Not used for UI fills. |
-| `success` · `warning` · `danger` | `#4ADE80` · `#FBBF24` · `#FF6B6E` | Status only |
-| `brand.gold` | `#FFD500` | The virality score icon |
+| `canvas` | `#06070B` (Void) | Backdrop base |
+| `surface` · `raised` · `overlay` | `#10131C` (Deep) · `#171B26` · `#1D2230` | Solid fallbacks (options menus, reduced transparency) |
+| `ink` | `#D6DBE6` (Silver) | Titles, names, values, active icons |
+| `ink-muted` | `#B4BBCB` (Frost) | Body text, descriptions |
+| `ink-subtle` | `#838B9D` (Muted) | Labels, hints, metadata |
+| `ink-faint` | `#5B6273` | Placeholders and disabled only. Never for text that must be read |
+| `hair` | `#D6DBE6` channel | Base for lines and fills. Use `bg-hair/10`, not white |
+| `line` / `line-strong` | hair 9% / 16% | Hairlines and dividers |
+| `fill` / `fill-hover` / `fill-selected` | hair 5% / 8% / 11% | Plain hover and pressed surfaces |
+| `control` | `#646C81` | Input, checkbox and switch borders (3:1) |
+| `accent` / `accent-hover` / `accent-ink` | `#A9B8FF` (Nebula) / `#C3CEFF` / `#06070B` | Chosen, live, focus. `accent-ink` is the text colour on a Nebula fill |
+| `silver` · `silver-light` · `silver-shade` | `#D6DBE6` · `#F1F3F8` · `#BCC3D1` | The brushed silver of `btn-primary` |
+| `success` · `warning` · `danger` | `#7FD6A8` · `#E8C27A` · `#F2939B` | Status only. These are light colours: text on a solid fill is `text-accent-ink`, never white |
+| `brand-star` | `#F3E7C4` | The virality score icon |
 
 Every token supports alpha modifiers: `bg-accent/10`, `text-danger`. Don't use `from-`/`via-`/`to-` gradient stops.
 
@@ -60,10 +62,12 @@ Every token supports alpha modifiers: `bg-accent/10`, `text-danger`. Don't use `
 
 ## Typography
 
-- **Geist** for UI and **Geist Mono** for numbers, timecodes, paths and costs. Both are vendored in `assets/fonts/` (SIL OFL 1.1), so the app renders the same offline.
+- **Inter** for everything, vendored in `assets/fonts/` (SIL OFL 1.1) so the app renders the same offline. There is no mono font: `font-mono` maps to Inter, and numbers that line up use the `tabular` class.
 - UI text is 13px (`text-sm`). The scale is `2xs` 11, `xs` 12, `sm` 13, `base` 14, `lg` 16, `xl` 20, `2xl` 24, `3xl` 30, `4xl` 40.
-- Page titles: `text-xl` (`text-2xl` from `xl`) `font-semibold`, optionally with an `.eyebrow` above. Panel titles: `text-sm font-semibold`; panel descriptions `text-xs`.
-- Numbers that change or line up (percentages, timecodes, costs) use `font-mono tabular`.
+- Page titles: `.title-page` (30px, weight 300, -0.025em), optionally with an `.eyebrow` above. Thin weights only at 24px and up. Panel titles: `text-sm font-semibold`; panel descriptions `text-xs`. `.title-hero` (weight 260) is for the start screen headline.
+- **Labels** above a group of controls (`.eyebrow`) are sentence case, medium and muted. Never uppercase, in the markup or the source text.
+- Numbers that change or line up (percentages, timecodes, costs) use `tabular`.
+- Writing: no em dashes. Use a colon, a comma or a period. A short en dash is fine for ranges and empty values.
 
 ---
 
@@ -88,12 +92,12 @@ Depth, back to front: `app-backdrop` → `glass` panel → `glass-tile` / `glass
 ┌ app-backdrop (solid canvas) ──────────────────────────────────────────┐
 │ ┌ sidebar (flush, border-r) ───────┐   ┌ title-bar strip: drag + scroll-edge ┐
 │ │ ● ● ●                            │   └──────────────────────────────────────┘
-│ │ [VlasiichukClip]                [⇤]  │     #page-scroll (pt-10)
-│ │ STUDIO                           │     <Page width="…">
+│ │ [V] vClip                       [⇤]  │     #page-scroll (pt-10)
+│ │ Studio                           │     <Page width="…">
 │ │  ✦ Create        ⌘1              │       PageHeader
 │ │  ▦ Library       ⌘2              │       glass panels …
 │ │  ≡ Jobs          ⌘3              │
-│ │ WORKSPACE                        │
+│ │ Social                           │
 │ │  ⋈ Accounts      ⌘4              │
 │ │  ➤ Posts         ⌘5              │
 │ │  ⇄ Automations   ⌘6              │
@@ -120,13 +124,13 @@ Depth, back to front: `app-backdrop` → `glass` panel → `glass-tile` / `glass
 | `Page` | Page column with width presets and the entry animation. |
 | `PageHeader` | Optional `eyebrow` and `leading` (back link), title, description, right-aligned actions. |
 | `Panel` / `PanelHeader` | `glass rounded-3xl p-6`. The header takes an `icon` (an `IconTile`), a title, a description and an action. |
-| `Button` | Capsules. `primary` (solid accent) · `secondary` (glass) · `ghost` · `danger`. Sizes `sm` 28px, `md` 32px, `lg` 40px. `iconOnly` makes it round (needs `aria-label`). `loading`. |
+| `Button` | Capsules. `primary` (brushed silver) · `secondary` (glass) · `ghost` · `danger`. Sizes `sm` 28px, `md` 32px, `lg` 40px. `iconOnly` makes it round (needs `aria-label`). `loading`. |
 | `TextInput` · `TextArea` | Recessed `glass-well`s with a crisp accent focus ring. `TextInput` `sm` is 28px, `md` 32px and `lg` 40px, matching Button heights, with `leading`/`trailing` slots and `mono`. |
 | `Select` | The app's dropdown (never a native `<select>`): a `glass-well` combobox button (`md` 32px, `sm` 28px) that opens a `glass-thick` menu with a check on the chosen option, muted `detail` text and disabled rows. Takes `options`, `placeholder`, `emptyText`, and `searchable` for long lists (time zones). Keyboard: arrows, Home/End, Page Up/Down, type-ahead, Enter/Space, Escape (closes only the menu, never the dialog around it). The menu is a top-layer popover, so panels and dialogs never clip it. `MENU_SURFACE` and `menuOptionClass` style any other menu (the model picker uses them). |
 | `Field` | Label, optional `aside` (e.g. "Get a key"), hint. |
 | `Segmented` | Single choice in a glass track, with the chosen option as a raised pill. Roving tab stop. Also exports `onRadioKeyDown` for custom radio groups. |
 | `SettingRow` | Title and description with a control (usually `Switch`) on a `glass-tile`. `bare` drops the tile. |
-| `Switch`, `Checkbox` | Solid accent when on. The checkbox supports `indeterminate` and `variant="overlay"` for use on video. |
+| `Switch`, `Checkbox` | Nebula when on, with a dark knob or tick (`canvas`). The checkbox supports `indeterminate` and `variant="overlay"` for use on video. |
 | `Badge`, `StatusDot` | Tinted glass pills; tones `neutral` · `accent` · `success` · `warning` · `danger`. Dots are solid and can pulse. |
 | `IconTile` | A flat tinted tile holding an icon. Sizes `sm`–`xl`, same tones. |
 | `Callout` | Tinted glass strip for errors, warnings, info and success, with optional title, action and dismiss. `role` is alert for danger, status otherwise. |
@@ -136,7 +140,7 @@ Depth, back to front: `app-backdrop` → `glass` panel → `glass-tile` / `glass
 | `HoverCard` | A read-only rich tooltip: hover or focus shows a `glass-thick` card under the trigger (above it when there's no room), as a top-layer popover. Escape closes it. |
 | `Dialog` / `DialogFooter` | Dimmed, blurred backdrop and a `glass-thick` panel (`layer="system"` for the update prompt). Callers own focus trapping and Escape. |
 
-Brand: `components/brand/VlasiichukClipLogo` renders the lockup (`variant="lockup"`, size by height), the app-icon tile (`variant="icon"`) or the family mark alone (`variant="mark"`, for the icon rail). All three use the vlasiichuk.pro mark (a circle with a line-art V and nested check, rules in `vlasiichuk.pro/BRAND.md`). On the dark UI the mark is the dark-surface variant, `resources/vlasiichuk-mark.svg`; the lockup is drawn inline so its wordmark uses Geist. The OS app icon is `resources/vlasiichukclip-icon.svg`, rasterized to PNG, ICO and ICNS by `scripts/icon/make-icons.py`. See `scripts/icon/README.md`. Edit the sources, not the exports.
+Brand: `components/brand/VClipLogo` renders the lockup (`variant="lockup"`: V mark, live text "vClip" and "by vlasiichuk.pro"; `size` md for the sidebar, lg for the loading screen), the rounded app icon (`variant="icon"`) or the V mark alone (`variant="mark"`, for the icon rail). The mark is the "Nebula face" V (left face silver, right face Nebula), one mark for every vlasiichuk.pro tool; never recolor, rotate or shadow it. Sources are `resources/vlasiichuk-mark.svg` and `resources/vclip-icon.svg`, copied from `vlasiichuk.pro/v2.1/logo`. The OS app icon is rasterized to PNG, ICO and ICNS by `scripts/icon/make-icons.py`. See `scripts/icon/README.md`. Edit the sources, not the exports.
 
 ---
 

@@ -1,32 +1,46 @@
 import markUrl from '../../../../resources/vlasiichuk-mark.svg'
+import iconUrl from '../../../../resources/vclip-icon.svg'
 import { cn } from '../../lib/utils'
 
-interface VlasiichukClipLogoProps {
+interface VClipLogoProps {
   /**
-   * lockup: vlasiichuk.pro mark + "VlasiichukClip" wordmark (for dark surfaces).
-   * icon:   the mark at tile size, as in Settings → About.
-   * mark:   the mark alone, for tight spaces such as the collapsed sidebar.
+   * lockup: V mark + "vClip" + "by vlasiichuk.pro", for the sidebar and loading screen.
+   * icon:   the rounded app icon, as in Settings → About.
+   * mark:   the V mark alone, for tight spaces such as the collapsed sidebar.
    */
   variant?: 'lockup' | 'icon' | 'mark'
-  /** Size by height (e.g. "h-6"); width follows the artwork. */
+  /** Lockup only. md is the sidebar size; lg is for the loading screen. */
+  size?: 'md' | 'lg'
+  /** Mark and icon: size by height (e.g. "h-6"); width follows the artwork. Lockup: extra classes on the wrapper. */
   className?: string
   alt?: string
 }
 
-/** Artwork follows vlasiichuk.pro/BRAND.md: on dark surfaces the circle is #fbfbfd and the V is #1d1d1f. */
-export function VlasiichukClipLogo({ variant = 'lockup', className, alt = 'VlasiichukClip' }: VlasiichukClipLogoProps): React.JSX.Element {
-  if (variant !== 'lockup') {
+const LOCKUP = {
+  md: { mark: 'h-5 w-5', name: 'text-[15px] leading-[18px]', by: 'text-[10.5px] leading-3', gap: 'gap-[9px]' },
+  lg: { mark: 'h-9 w-9', name: 'text-[26px] leading-8', by: 'text-xs leading-4', gap: 'gap-3' }
+} as const
+
+/**
+ * Artwork follows vlasiichuk.pro/v2.1/logo. The mark is the "Nebula face" V: left face
+ * silver, right face Nebula. It is one mark for every tool; tools differ by name only.
+ * Never recolor, rotate, outline or add shadows to it.
+ */
+export function VClipLogo({ variant = 'lockup', size = 'md', className, alt = 'vClip' }: VClipLogoProps): React.JSX.Element {
+  if (variant === 'mark') {
     return <img src={markUrl} alt={alt} draggable={false} className={cn('w-auto shrink-0 select-none', className)} />
   }
-  // Inline so the wordmark renders in the app's own Geist font.
+  if (variant === 'icon') {
+    return <img src={iconUrl} alt={alt} draggable={false} className={cn('w-auto shrink-0 select-none', className)} />
+  }
+  const s = LOCKUP[size]
   return (
-    <svg viewBox="0 0 560 100" role="img" aria-label={alt} className={cn('w-auto shrink-0 select-none', className)}>
-      <circle cx="50" cy="50" r="46" fill="#fbfbfd" />
-      <path d="M30 30L50 70L70 30M43 51L50 64L57 51" fill="none" stroke="#1d1d1f" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-      <text x="122" y="70" fill="#fbfbfd" fontFamily="inherit" fontSize="56" letterSpacing="-1.1">
-        <tspan fontWeight="600">Vlasiichuk</tspan>
-        <tspan fontWeight="400">Clip</tspan>
-      </text>
-    </svg>
+    <div role="img" aria-label={`${alt} by vlasiichuk.pro`} className={cn('flex shrink-0 select-none items-center', s.gap, className)}>
+      <img src={markUrl} alt="" draggable={false} className={cn('shrink-0', s.mark)} />
+      <div aria-hidden>
+        <b className={cn('block font-medium tracking-[-0.01em] text-ink', s.name)}>vClip</b>
+        <small className={cn('block text-ink-subtle', s.by)}>by vlasiichuk.pro</small>
+      </div>
+    </div>
   )
 }

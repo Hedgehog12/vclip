@@ -8,7 +8,7 @@ export const DURATION_OPTIONS = [
   { id: 'feature', label: 'Feature', range: '15–30m' }
 ] as const
 
-/** Increment when the desktop bridge and bundled VlasiichukClip engine job contract change. */
+/** Increment when the desktop bridge and bundled vClip engine job contract change. */
 export const BRIDGE_CONTRACT_VERSION = 3
 
 export const VIDEO_SPEED_OPTIONS = [1, 1.1, 1.25, 1.5, 1.75, 2] as const

@@ -2,7 +2,7 @@
   "name": "vlasiichukclip",
   "productName": "VlasiichukClip",
   "version": "0.1.17",
-  "description": "VlasiichukClip: open-source AI video clipping by vlasiichuk.pro. Turn long videos into captioned short-form clips, locally, with your own API keys.",
+  "description": "vClip: open-source AI video clipping by vlasiichuk.pro. Turn long videos into captioned short-form clips, locally, with your own API keys.",
   "main": "./out/main/index.js",
   "author": "Julian Vlasiichuk",
   "license": "MIT",
