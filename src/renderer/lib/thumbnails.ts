@@ -1,4 +1,5 @@
 import { getApi } from './ipc'
+import { localFileUrl } from './utils'
 
 /**
  * Thumbnails are extracted with a synchronous ffmpeg call in the main process,
@@ -26,8 +27,21 @@ export function loadThumbnail(videoPath: string, seekSeconds?: number): Promise<
   return task
 }
 
-/** file:///a/b.mp4 → /a/b.mp4; plain paths pass through. VlasiichukClip engine writes the
+/** file:///a/b.mp4 → /a/b.mp4; plain paths pass through. vClip engine writes the
  *  raw path after the scheme (not percent-encoded), so don't decode it. */
 export function clipFilePath(url: string): string {
   return url.startsWith('file://') ? url.slice('file://'.length) : url
+}
+
+/**
+ * The picture to show for a clip: its own thumbnail (made by AI or uploaded in
+ * the Library) when one is ready, else a frame from the video. Returns a URL.
+ */
+export async function loadClipCover(videoPath: string, durationMs?: number): Promise<string | null> {
+  try {
+    const own = await getApi().thumbnails.aiStatus(videoPath)
+    if (own?.status === 'ready' && own.path) return `${localFileUrl(own.path)}?v=${encodeURIComponent(own.updatedAt)}`
+  } catch { /* Fall back to a frame. */ }
+  const frame = await loadThumbnail(videoPath, durationMs && durationMs > 0 ? durationMs / 2000 : undefined)
+  return frame ? localFileUrl(frame) : null
 }

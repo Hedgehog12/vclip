@@ -35,6 +35,7 @@ import {
   checkCaption,
   checkClip,
   isValidTimeZone,
+  queueSlotError,
   scheduleError,
   type ClipMediaInfo,
   type PostClipRequest,
@@ -44,6 +45,7 @@ import {
   type PostRecord,
   type PostsRefreshResult,
   type RemotePostsPage,
+  type QueueSlot,
   type TikTokCreatorInfo
 } from '../../shared/zernio-posts'
 
@@ -301,7 +303,12 @@ function outcomeOf(record: PostRecord, created: CreatedPost, request: PostClipRe
     case 'scheduled':
       if (created.httpStatus === 207) return { outcome: 'retrying', message: 'Zernio hit a temporary problem and will retry automatically.' }
       if (request.timing.mode === 'now') return { outcome: 'publishing', message: 'Zernio queued the post and will publish it shortly.' }
-      return { outcome: 'scheduled', message: 'Zernio publishes it even when VlasiichukClip is closed.' }
+      return {
+        outcome: 'scheduled',
+        message: request.timing.mode === 'queue'
+          ? 'Added to your queue. Zernio publishes it in the next free slot, even when vClip is closed.'
+          : 'Zernio publishes it even when vClip is closed.'
+      }
     default:
       return { outcome: 'publishing', message: 'Zernio is still publishing. Check Posts on the Accounts page for the result.' }
   }
@@ -334,7 +341,7 @@ async function recordDuplicate(client: ZernioClient, error: ZernioDuplicatePostE
  * synced (no request), or against Zernio when one isn't there. Handles are
  * kept for the history.
  */
-async function resolveTargets(client: ZernioClient, requested: PostClipRequest['targets']): Promise<(PostClipRequest['targets'][number] & { handle: string | null })[]> {
+async function resolveTargets(client: ZernioClient, requested: PostClipRequest['targets']): Promise<(PostClipRequest['targets'][number] & { handle: string | null; profileId: string | null })[]> {
   const match = (accounts: ZernioAccount[]): (ZernioAccount | undefined)[] =>
     requested.map((target) => accounts.find((a) => a.id === target.accountId && a.platform === target.platform))
   let found = match(readCachedOverview()?.accounts ?? [])
@@ -346,7 +353,7 @@ async function resolveTargets(client: ZernioClient, requested: PostClipRequest['
       const who = account.username ? `${platformLabel(target.platform)} @${account.username}` : platformLabel(target.platform)
       throw new Error(`Reconnect or check ${who} on the Accounts page before posting to it.`)
     }
-    return { ...target, handle: account.username ? `@${account.username}` : account.displayName }
+    return { ...target, handle: account.username ? `@${account.username}` : account.displayName, profileId: account.profileId }
   })
 }
 
@@ -461,6 +468,17 @@ async function publish(request: PostClipRequest, signal: AbortSignal, notify: (p
   const client = getClient()
   const [media, targets] = await Promise.all([probe(request.clipPath, request.durationMs), resolveTargets(client, request.targets)])
   assertWorkspace(generation)
+  // A queue belongs to one profile, so every account must be in it, and the
+  // slot must come before the upload expires.
+  let queueSlot: Awaited<ReturnType<ZernioClient['getNextQueueSlot']>> | null = null
+  if (request.timing.mode === 'queue') {
+    const profileId = request.timing.profileId
+    if (targets.some((t) => t.profileId !== profileId)) throw new Error('Add to queue works with the accounts of one profile. Choose accounts from the same profile, or pick a time.')
+    queueSlot = await client.getNextQueueSlot(profileId)
+    assertWorkspace(generation)
+    const error = queueSlotError(queueSlot.nextSlot ? Date.parse(queueSlot.nextSlot) : NaN, uploadedAt)
+    if (error) throw new Error(error)
+  }
   const label = (accountId: string): string => {
     const target = targets.find((t) => t.accountId === accountId)
     return target?.handle ? `${platformLabel(target.platform)} ${target.handle}` : platformLabel(target?.platform ?? '')
@@ -571,9 +589,10 @@ async function publish(request: PostClipRequest, signal: AbortSignal, notify: (p
       url: null,
       inbox: t.platform === 'tiktok' && request.options.tiktok?.draft === true
     })),
-    scheduledFor: request.timing.mode === 'schedule' ? request.timing.scheduledFor : null,
-    timezone: request.timing.mode === 'schedule' ? request.timing.timezone : null,
-    status: request.timing.mode === 'schedule' ? 'scheduled' : 'publishing',
+    // For a queued post, Zernio's response replaces this estimate with the slot it took.
+    scheduledFor: request.timing.mode === 'schedule' ? request.timing.scheduledFor : queueSlot?.nextSlot ?? null,
+    timezone: request.timing.mode === 'schedule' ? request.timing.timezone : queueSlot?.timezone ?? null,
+    status: request.timing.mode === 'now' ? 'publishing' : 'scheduled',
     error: null,
     createdAt: nowIso,
     uploadedAt: new Date(attempt.uploadedAt).toISOString(),
@@ -826,4 +845,11 @@ export async function listRemotePosts(rawQuery: unknown): Promise<RemotePostsPag
 export async function openPostUrl(url: unknown, platform: unknown): Promise<void> {
   if (typeof platform !== 'string' || !isPostUrl(url, platform)) throw new Error('This link can’t be opened.')
   await shell.openExternal(url)
+}
+
+/** A profile's next free queue time, for the composer to show before posting. */
+export async function getQueueSlot(profileId: unknown): Promise<QueueSlot> {
+  if (!isZernioId(profileId)) throw new Error('Choose a profile.')
+  const slot = await getClient().getNextQueueSlot(profileId)
+  return { profileId, ...slot }
 }

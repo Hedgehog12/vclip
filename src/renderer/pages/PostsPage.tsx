@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUpRight, CalendarClock, Clapperboard, Info, Plus, RefreshCw, RotateCcw, Search, Send, X } from 'lucide-react'
-import { cn, errorMessage, formatRelativeDate, localFileUrl } from '../lib/utils'
+import { ArrowUpRight, CalendarClock, Clapperboard, FileText, Info, Plus, RefreshCw, RotateCcw, Search, Send, Trash2, X } from 'lucide-react'
+import { cn, errorMessage, formatRelativeDate } from '../lib/utils'
 import { getApi } from '../lib/ipc'
-import { loadThumbnail } from '../lib/thumbnails'
+import { loadClipCover } from '../lib/thumbnails'
 import { usePostsStore } from '../store/use-posts-store'
 import { useSettingsStore } from '../store/use-settings-store'
 import { ensureAccountsLoaded, useAccountsStore } from '../store/use-accounts-store'
@@ -17,6 +17,8 @@ import {
   postListItemFromRecord,
   scheduleError,
   scheduleWindow,
+  type PostDraft,
+  type PostDraftEntry,
   type PostListItem,
   type PostRecord,
   type PostStatus,
@@ -24,7 +26,8 @@ import {
   type PostsSort
 } from '../../shared/zernio-posts'
 import { PlatformIcon, platformName } from '../components/PlatformIcon'
-import { formatScheduled, targetBadge } from '../components/PostDialog'
+import { PostDialog, formatScheduled, postableFromDraft, targetBadge, type PostableClip } from '../components/PostDialog'
+import { ClipPickerDialog } from '../components/ClipPickerDialog'
 import { PostDetailsDialog } from '../components/PostDetailsDialog'
 import { Page as PageColumn } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
@@ -205,7 +208,7 @@ export function PostsPage({ onNavigate }: { onNavigate: (page: Page) => void }):
             className="mt-4"
             icon={<Send />}
             title="Connect your social accounts"
-            description="Clips you post or schedule from VlasiichukClip show up here once Zernio is set up in Accounts."
+            description="Clips you post or schedule from vClip show up here once Zernio is set up in Accounts."
             action={<Button variant="primary" onClick={() => onNavigate('accounts')}>Open Accounts</Button>}
           />
         </>
@@ -280,7 +283,7 @@ function useRemotePosts(query: PostsFilter | null): RemotePosts {
   }
 }
 
-/** Posts made from VlasiichukClip, or every post in the Zernio workspace, with filters and sorting. */
+/** Posts made from vClip, or every post in the Zernio workspace, with filters and sorting. */
 function PostsList({ onNavigate }: { onNavigate: (page: Page) => void }): React.JSX.Element {
   const { posts, loaded, refreshing, error, clearError, refresh } = usePostsStore()
   const accounts = useAccountsStore((s) => s.accounts)
@@ -289,6 +292,18 @@ function PostsList({ onNavigate }: { onNavigate: (page: Page) => void }): React.
   const [searchText, setSearchText] = useState('')
   const [search, setSearch] = useState('')
   const [shown, setShown] = useState(LOCAL_PAGE)
+  // Create post: choose a clip, then the composer (also for continuing a draft).
+  const [picking, setPicking] = useState(false)
+  const [composing, setComposing] = useState<{ clip: PostableClip; draft: PostDraft | null } | null>(null)
+  const [drafts, setDrafts] = useState<PostDraftEntry[] | null>(null)
+  const [draftsError, setDraftsError] = useState<string | null>(null)
+
+  const loadDrafts = useCallback((): void => {
+    getApi().zernio.drafts.list()
+      .then((list) => { setDrafts(list); setDraftsError(null) })
+      .catch((err) => setDraftsError(errorMessage(err, 'Could not read your drafts.')))
+  }, [])
+  useEffect(() => loadDrafts(), [loadDrafts])
 
   const update = (change: (current: ViewState) => ViewState): void => {
     setView((current) => {
@@ -382,13 +397,15 @@ function PostsList({ onNavigate }: { onNavigate: (page: Page) => void }): React.
         <Button size="sm" onClick={() => void usePostsStore.getState().load()}>Try again</Button>
       </Panel>
     )
+  } else if (isApp && posts.length === 0 && drafts && drafts.length > 0) {
+    body = <p className="px-1 text-xs text-ink-muted">Nothing posted yet. Open a draft to finish it, or create a new post.</p>
   } else if (isApp && posts.length === 0) {
     body = (
       <EmptyState
         icon={<Send />}
         title="Nothing posted yet"
-        description="Open a run in the Library and choose Post on a clip. Scheduled posts wait here until they go out."
-        action={<Button icon={<Clapperboard className="h-3.5 w-3.5" />} onClick={() => onNavigate('library')}>Open Library</Button>}
+        description="Choose Create post to pick a clip, or use Post on a clip in the Library. Scheduled posts wait here until they go out."
+        action={<Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setPicking(true)}>Create post</Button>}
       />
     )
   } else if (items.length === 0) {
@@ -450,7 +467,7 @@ function PostsList({ onNavigate }: { onNavigate: (page: Page) => void }): React.
             <Button trailingIcon={<ArrowUpRight className="h-3.5 w-3.5" />} title="Open your Zernio dashboard in the browser" onClick={() => openLink(ZERNIO_LINKS.dashboard)}>
               Open Zernio
             </Button>
-            <Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} title="Pick a clip in the Library and choose Post" onClick={() => onNavigate('library')}>
+            <Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} title="Choose a clip and write the post" onClick={() => setPicking(true)}>
               Create post
             </Button>
           </>
@@ -499,10 +516,106 @@ function PostsList({ onNavigate }: { onNavigate: (page: Page) => void }): React.
         {!isApp && filter.status === 'missing' && (
           <Callout tone="info">“Not in Zernio” only applies to posts made here. Switch to “Made here” to see them.</Callout>
         )}
+        {draftsError && <Callout tone="danger" onDismiss={() => setDraftsError(null)}>{draftsError}</Callout>}
+        {isApp && (!view.filter.status || view.filter.status === 'draft') && (
+          <DraftsPanel
+            drafts={(drafts ?? []).filter((d) => !search || [d.clipTitle, d.caption].join('\n').toLocaleLowerCase().includes(search.toLocaleLowerCase()))}
+            onOpen={(draft) => setComposing({ clip: postableFromDraft(draft), draft })}
+            onDeleted={setDrafts}
+            onError={setDraftsError}
+          />
+        )}
         {body}
-        <p className="px-1 text-2xs text-ink-subtle">Zernio publishes scheduled posts even when VlasiichukClip is closed.</p>
+        <p className="px-1 text-2xs text-ink-subtle">Zernio publishes scheduled posts even when vClip is closed. Drafts stay on this computer until you post them.</p>
       </div>
+
+      {picking && (
+        <ClipPickerDialog
+          onClose={() => setPicking(false)}
+          onPick={(clip) => { setPicking(false); setComposing({ clip, draft: null }) }}
+        />
+      )}
+      {composing && (
+        <PostDialog
+          clips={[composing.clip]}
+          draft={composing.draft}
+          onDraftsChanged={loadDrafts}
+          onClose={() => { setComposing(null); loadDrafts(); if (!isApp) remote.reload() }}
+          onNavigate={(page) => { if (page !== 'posts') onNavigate(page) }}
+        />
+      )}
     </>
+  )
+}
+
+/** When a draft will go out once it is posted, in words. */
+function draftPlan(draft: PostDraft): string {
+  if (draft.timing.mode === 'queue') return 'Next free queue time'
+  if (draft.timing.mode === 'schedule' && draft.timing.scheduledFor) return `Planned for ${formatScheduled(draft.timing.scheduledFor)}`
+  return 'Post when ready'
+}
+
+/** Posts being prepared on this computer; open one to finish and post it. */
+function DraftsPanel({ drafts, onOpen, onDeleted, onError }: {
+  drafts: PostDraftEntry[]
+  onOpen: (draft: PostDraftEntry) => void
+  onDeleted: (drafts: PostDraftEntry[]) => void
+  onError: (message: string) => void
+}): React.JSX.Element | null {
+  const [confirming, setConfirming] = useState<string | null>(null)
+  if (drafts.length === 0) return null
+  const remove = (id: string): void => {
+    getApi().zernio.drafts.delete(id)
+      .then((list) => { setConfirming(null); onDeleted(list) })
+      .catch((err) => onError(errorMessage(err, 'Could not delete the draft.')))
+  }
+  return (
+    <Panel padded={false} className="overflow-hidden">
+      <h2 className="eyebrow flex items-center gap-2 border-b border-white/[0.06] py-2 pl-4 pr-2.5">
+        <FileText className="h-3.5 w-3.5" />
+        Drafts
+        <span className="rounded-full bg-white/[0.07] px-1.5 py-px font-mono text-[10px] tabular tracking-normal text-ink-muted">{drafts.length}</span>
+      </h2>
+      <ul className="divide-y divide-white/[0.05]" aria-label="Drafts">
+        {drafts.map((draft) => {
+          const title = draft.clipTitle || draft.caption.split('\n')[0] || 'Untitled draft'
+          return (
+            <li key={draft.id} className="flex items-center gap-3 py-2 pl-4 pr-2.5 transition-colors duration-150 hover:bg-white/[0.02]">
+              <PostThumb clipPath={draft.clipMissing ? null : draft.clipPath} />
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  disabled={draft.clipMissing}
+                  onClick={() => onOpen(draft)}
+                  className="block max-w-full truncate text-left text-sm font-medium text-ink enabled:hover:underline enabled:hover:decoration-white/30 enabled:hover:underline-offset-2"
+                >
+                  {title}
+                </button>
+                <p className={cn('truncate text-xs', confirming === draft.id ? 'text-ink' : draft.clipMissing ? 'text-danger' : 'text-ink-subtle')}>
+                  {confirming === draft.id ? 'Delete this draft? This can’t be undone.'
+                    : draft.clipMissing ? 'The clip file was moved or deleted, so this draft can’t be posted.'
+                    : `${draftPlan(draft)} · ${draft.accountIds.length} account${draft.accountIds.length === 1 ? '' : 's'} · edited ${formatRelativeDate(draft.updatedAt)}`}
+                </p>
+              </div>
+              <Badge tone="neutral">Draft</Badge>
+              <div className="flex shrink-0 items-center gap-1">
+                {confirming === draft.id ? (
+                  <>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>Keep</Button>
+                    <Button size="sm" variant="danger" onClick={() => remove(draft.id)}>Delete draft</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size="sm" variant="primary" disabled={draft.clipMissing} onClick={() => onOpen(draft)}>Open</Button>
+                    <Button size="sm" variant="ghost" iconOnly aria-label={`Delete draft “${title}”`} title="Delete draft" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => setConfirming(draft.id)} />
+                  </>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </Panel>
   )
 }
 
@@ -511,12 +624,12 @@ function PostThumb({ clipPath }: { clipPath: string | null }): React.JSX.Element
   useEffect(() => {
     if (!clipPath) return
     let cancelled = false
-    loadThumbnail(clipPath).then((path) => { if (!cancelled) setThumb(path) })
+    loadClipCover(clipPath).then((url) => { if (!cancelled) setThumb(url) })
     return () => { cancelled = true }
   }, [clipPath])
   return thumb ? (
     <img
-      src={localFileUrl(thumb)}
+      src={thumb}
       alt=""
       draggable={false}
       className="h-10 w-10 shrink-0 rounded-lg object-cover shadow-[0_6px_16px_-8px_rgb(0_0_0/0.7)] ring-1 ring-white/[0.12]"

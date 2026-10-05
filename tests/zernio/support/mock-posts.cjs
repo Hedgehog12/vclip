@@ -82,7 +82,9 @@ function createPostingMock(options = {}) {
     /** Delay (ms) before answering POST /v1/posts, to exercise timeouts. */
     createDelayMs: 0,
     /** Query of every GET /v1/posts list request. */
-    listQueries: []
+    listQueries: [],
+    /** profileId -> free queue slots (ISO), soonest first. */
+    queues: new Map()
   }
 
   const view = (ctx, post) => ({
@@ -148,7 +150,10 @@ function createPostingMock(options = {}) {
     for (const item of media) {
       if (!state.uploads.some((u) => state.presigned.get(u.key)?.publicUrl === item.url)) return `mediaItems url was never uploaded: ${item.url}`
     }
-    if (!body.publishNow) {
+    if (body.queuedFromProfile !== undefined) {
+      if (body.scheduledFor !== undefined) return 'Send queuedFromProfile without scheduledFor'
+      if (!(state.queues.get(body.queuedFromProfile) ?? []).length) return { status: 404, message: 'No available queue slots' }
+    } else if (!body.publishNow) {
       if (typeof body.scheduledFor !== 'string' || !Number.isFinite(Date.parse(body.scheduledFor))) return 'scheduledFor is required'
       if (body.timezone !== undefined) {
         try { new Intl.DateTimeFormat('en-US', { timeZone: body.timezone }) } catch { return 'Unknown timezone' }
@@ -244,8 +249,10 @@ function createPostingMock(options = {}) {
           content: body.content ?? '',
           mediaItems: body.mediaItems,
           platforms: body.platforms.map((t) => ({ platform: t.platform, accountId: t.accountId, platformSpecificData: t.platformSpecificData, status: 'pending' })),
-          scheduledFor: body.publishNow ? undefined : new Date(Date.parse(body.scheduledFor)).toISOString(),
-          timezone: body.timezone ?? 'UTC',
+          scheduledFor: body.queuedFromProfile ? state.queues.get(body.queuedFromProfile).shift()
+            : body.publishNow ? undefined : new Date(Date.parse(body.scheduledFor)).toISOString(),
+          queuedFromProfile: body.queuedFromProfile,
+          timezone: body.queuedFromProfile ? 'Europe/Berlin' : body.timezone ?? 'UTC',
           status: 'scheduled',
           tiktokSettings: body.tiktokSettings,
           metadata: body.metadata,
@@ -271,6 +278,17 @@ function createPostingMock(options = {}) {
         }
         create.status = 201
         return ctx.json(201, { message: 'Post scheduled successfully', post: view(ctx, post) })
+      }
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/queue/next-slot',
+      handler: (ctx) => {
+        const profileId = ctx.query.get('profileId')
+        if (!profileId) return error(ctx, 400, 'profileId is required', { param: 'profileId' })
+        const next = (state.queues.get(profileId) ?? [])[0]
+        if (!next) return ctx.json(404, { error: 'No available slots', code: 'not_found' })
+        return ctx.json(200, { profileId, nextSlot: next, timezone: 'Europe/Berlin', queueId: 'q'.repeat(24), queueName: 'Weekday mornings' })
       }
     },
     {

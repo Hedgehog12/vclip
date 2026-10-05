@@ -10,9 +10,11 @@ import { cn, errorMessage } from '../lib/utils'
 import { APP_NAME, APP_VERSION, AUTHOR_NAME, AUTHOR_URL, ISSUES_URL, LICENSE_NAME, PROVIDER_LINKS, REPO_URL } from '../config/brand'
 import type { ClipSettings, ToolStatus } from '../../preload/index'
 import { ApiKeyInput } from '../components/ApiKeyInput'
-import { VlasiichukClipLogo } from '../components/brand/VlasiichukClipLogo'
+import { VClipLogo } from '../components/brand/VClipLogo'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
+import { SettingsTabs } from '../components/SettingsTabs'
+import type { Page as AppPage } from '../components/Sidebar'
 import { Panel, PanelHeader } from '../components/ui/Panel'
 import { Button } from '../components/ui/Button'
 import { Field, TextArea, TextInput } from '../components/ui/Field'
@@ -23,7 +25,7 @@ import { Callout } from '../components/ui/Callout'
 type SectionId = 'keys' | 'vocabulary' | 'thumbnails' | 'output' | 'system' | 'about'
 type SectionTone = 'success' | 'warning' | 'danger' | 'idle'
 
-export function SettingsPage(): React.JSX.Element {
+export function SettingsPage({ onNavigate }: { onNavigate: (page: AppPage) => void }): React.JSX.Element {
   const { outputDirectory, pythonPath, customVocabulary, thumbnailPrompt, thumbnailModel, openrouterConfigured, zernioConfigured, saving, save, toolStatus, toolError, checkTools, checkingTools } =
     useSettingsStore()
   const keys = useApiKeyDrafts()
@@ -74,9 +76,8 @@ export function SettingsPage(): React.JSX.Element {
   return (
     <Page width="default" className="max-w-[1080px]">
       <PageHeader
-        eyebrow="Preferences"
         title="Settings"
-        description="Changes save automatically."
+        below={<SettingsTabs current="settings" onNavigate={onNavigate} />}
         actions={<SaveIndicator saving={saving} savedAt={lastSaved || null} error={error} />}
       />
 
@@ -133,7 +134,7 @@ export function SettingsPage(): React.JSX.Element {
             <PanelHeader
               icon={<IconTile tone="accent"><KeyRound /></IconTile>}
               title="API keys"
-              description="Encrypted with your system keychain. VlasiichukClip has no account and no server of its own."
+              description="Encrypted with your system keychain. vClip has no account and no server of its own."
             />
             <div className="mt-4 space-y-2">
               <KeyRow>
@@ -203,7 +204,7 @@ export function SettingsPage(): React.JSX.Element {
             <PanelHeader
               icon={<IconTile tone={toolsChecked && toolsMissing ? 'danger' : 'neutral'}><Cpu /></IconTile>}
               title="System check"
-              description="Tools VlasiichukClip needs to download, transcribe and cut video."
+              description="Tools vClip needs to download, transcribe and cut video."
               action={
                 <Button
                   size="sm"
@@ -231,7 +232,7 @@ export function SettingsPage(): React.JSX.Element {
 
           <Section id="about" className="overflow-hidden">
             <div className="flex flex-wrap items-center gap-4">
-              <VlasiichukClipLogo variant="icon" className="-m-1 h-12" />
+              <VClipLogo variant="icon" className="h-12" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2.5">
                   <h2 className="text-base font-semibold tracking-[-0.01em] text-ink">{APP_NAME}</h2>
@@ -527,7 +528,7 @@ function toolRows(status: ToolStatus | null): ToolRow[] {
     },
     { name: 'FFprobe', ok: status?.ffprobe ?? null },
     { name: 'yt-dlp', ok: status?.ytdlp ?? null, detail: 'Downloads YouTube videos and Twitch VODs' },
-    { name: 'VlasiichukClip clipping engine', ok: status?.engine ?? null, detail: status?.enginePath },
+    { name: 'vClip clipping engine', ok: status?.engine ?? null, detail: status?.enginePath },
     { name: 'Bridge runner', ok: status?.bridgeRunner ?? null, detail: status?.bridgePath }
   ]
 }
@@ -544,7 +545,7 @@ function ToolList({ rows, checking }: { rows: ToolRow[]; checking: boolean }): R
         <div className="mb-3 flex items-center gap-2 px-1 text-xs">
           <StatusDot tone={missing > 0 ? 'danger' : 'success'} />
           <span className={cn('flex-1', missing > 0 ? 'text-danger' : 'text-ink-muted')}>
-            {missing > 0 ? `${missing} required tool${missing === 1 ? '' : 's'} missing` : `Everything VlasiichukClip needs is installed (${rows.filter((row) => row.ok).length} tools)`}
+            {missing > 0 ? `${missing} required tool${missing === 1 ? '' : 's'} missing` : `Everything vClip needs is installed (${rows.filter((row) => row.ok).length} tools)`}
           </span>
           {missing === 0 && (
             <Button

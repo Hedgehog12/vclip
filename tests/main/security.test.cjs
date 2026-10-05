@@ -202,6 +202,7 @@ test('the native picker authorizes media and shell opening rejects aliased appli
       './tools': {},
       './zernio/service': {},
       './zernio/posts': {},
+      './zernio/post-drafts': {},
       './automations': {}
     })
     ipc.registerIpcHandlers(() => window)

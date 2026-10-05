@@ -65,7 +65,7 @@ test('add library clips, review TikTok, and run a mixed-platform automation', { 
   await page.getByText('Profile “Another profile” created.').waitFor()
   await choose(page, page.getByLabel('Zernio profile'), profile.name)
   await page.getByRole('button', { name: 'Connect', exact: true }).click()
-  await page.getByRole('heading', { name: 'Accounts', exact: true }).waitFor()
+  await page.getByRole('radio', { name: 'Accounts', checked: true }).waitFor()
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /Automations/ }).click()
   await page.getByRole('heading', { name: 'Content bank' }).waitFor()
   assert.equal(await page.getByLabel('Zernio profile').textContent(), profile.name)

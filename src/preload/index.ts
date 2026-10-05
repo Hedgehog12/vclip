@@ -9,7 +9,7 @@ import type {
   ZernioProfile,
   ZernioSyncResult
 } from '../shared/zernio'
-import type { ClipMediaInfo, PostClipRequest, PostClipResult, PostProgress, PostRecord, PostsRefreshResult, RemotePostsPage, RemotePostsQuery, TikTokCreatorInfo, TikTokLegalLink } from '../shared/zernio-posts'
+import type { ClipMediaInfo, PostClipRequest, PostClipResult, PostProgress, PostRecord, PostDraft, PostDraftEntry, PostDraftInput, PostsRefreshResult, QueueSlot, RemotePostsPage, RemotePostsQuery, TikTokCreatorInfo, TikTokLegalLink } from '../shared/zernio-posts'
 import type { ClipJobRequest, IdeaDecision, JobReview, JobSnapshot, StorageUsage } from '../shared/jobs'
 import type { Automation, AutomationUpdate, AutomationTikTokReview, AutomationTikTokReviewUpdate } from '../shared/automations'
 import type { OpenRouterCatalog } from '../shared/openrouter-models'
@@ -134,6 +134,15 @@ export interface VlasiichukClipAPI {
       listRemote: (query: RemotePostsQuery) => Promise<RemotePostsPage>
       /** Opens a post's public link; only https links on that platform's site. */
       openUrl: (url: string, platform: string) => Promise<void>
+      /** The profile's next free queue time; `nextSlot` null when it has none. */
+      queueSlot: (profileId: string) => Promise<QueueSlot>
+    }
+    /** Posts being prepared, kept on this computer; nothing is uploaded until they're posted. */
+    drafts: {
+      list: () => Promise<PostDraftEntry[]>
+      /** `id` null creates a draft. Returns it as saved. */
+      save: (draft: PostDraftInput) => Promise<PostDraft>
+      delete: (id: string) => Promise<PostDraftEntry[]>
     }
   }
   job: {
@@ -164,6 +173,8 @@ export interface VlasiichukClipAPI {
   storage: {
     usage: () => Promise<StorageUsage>
     deleteSource: (jobId: string) => Promise<{ ok?: true; deleted?: boolean; error?: string }>
+    /** Moves the whole job folder (stream, clips, everything) to the Recycle Bin. */
+    deleteJob: (jobId: string) => Promise<{ ok?: true; error?: string }>
   }
   thumbnails: {
     generate: (videoPath: string, seekSeconds?: number) => Promise<string | null>
@@ -186,6 +197,8 @@ export interface VlasiichukClipAPI {
     bulkExport: (clips: { path: string; name: string }[]) => Promise<{ success: boolean; count: number; failedCount: number; destDir?: string }>
     /** Save a clip's edited title and description; returns the updated clip. */
     updateDetails: (clipPath: string, details: { title: string; description: string }) => Promise<ClipArtifact>
+    /** Moves clips (and their thumbnails) to the Recycle Bin and removes them from their run. */
+    delete: (clipPaths: string[]) => Promise<{ deleted: string[]; failed: { path: string; error: string }[] }>
   }
   system: {
     isPackaged: () => Promise<boolean>
@@ -260,7 +273,13 @@ const api: VlasiichukClipAPI = {
       openTikTokLegal: (key) => ipcRenderer.invoke('zernio:posts:openTikTokLegal', key),
       openStudio: (postId, targetIndex) => ipcRenderer.invoke('zernio:posts:openStudio', postId, targetIndex),
       listRemote: (query) => ipcRenderer.invoke('zernio:posts:listRemote', query),
-      openUrl: (url, platform) => ipcRenderer.invoke('zernio:posts:openUrl', url, platform)
+      openUrl: (url, platform) => ipcRenderer.invoke('zernio:posts:openUrl', url, platform),
+      queueSlot: (profileId) => ipcRenderer.invoke('zernio:posts:queueSlot', profileId)
+    },
+    drafts: {
+      list: () => ipcRenderer.invoke('zernio:drafts:list'),
+      save: (draft) => ipcRenderer.invoke('zernio:drafts:save', draft),
+      delete: (id) => ipcRenderer.invoke('zernio:drafts:delete', id)
     }
   },
   job: {
@@ -282,7 +301,8 @@ const api: VlasiichukClipAPI = {
   },
   storage: {
     usage: () => ipcRenderer.invoke('storage:usage'),
-    deleteSource: (jobId) => ipcRenderer.invoke('storage:deleteSource', jobId)
+    deleteSource: (jobId) => ipcRenderer.invoke('storage:deleteSource', jobId),
+    deleteJob: (jobId) => ipcRenderer.invoke('storage:deleteJob', jobId)
   },
   thumbnails: {
     generate: (videoPath, seekSeconds) => ipcRenderer.invoke('thumbnails:generate', videoPath, seekSeconds),
@@ -299,7 +319,8 @@ const api: VlasiichukClipAPI = {
   },
   clips: {
     bulkExport: (clips) => ipcRenderer.invoke('clips:bulkExport', clips),
-    updateDetails: (clipPath, details) => ipcRenderer.invoke('clips:updateDetails', clipPath, details)
+    updateDetails: (clipPath, details) => ipcRenderer.invoke('clips:updateDetails', clipPath, details),
+    delete: (clipPaths) => ipcRenderer.invoke('clips:delete', clipPaths)
   },
   system: {
     isPackaged: () => ipcRenderer.invoke('system:isPackaged'),

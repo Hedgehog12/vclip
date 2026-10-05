@@ -13,7 +13,7 @@ import {
 } from './pipeline-runner'
 import { beginRenderRound, createRunRecord, discardRunRecord, finishRunRecord, readRunRecord, saveDecisions } from './run-history'
 import { baseRequest, cancelTrackedJob, discardTrackedJob, dismissJob, enqueueJob, enqueueRenderRound, initJobManager, isJobBusy, listJobs, liveJobIds } from './job-manager'
-import { buildJobReview, deleteKeptSource, readSavedReview, storageUsage, userSourcePath } from './review-store'
+import { buildJobReview, deleteKeptSource, readSavedReview, runDirectory, storageUsage, userSourcePath } from './review-store'
 import { IDEA_ID_PATTERN, MAX_IDEAS_PER_RENDER, type IdeaDecision } from '../shared/jobs'
 import { logger, getLogFilePath } from './logger'
 import { assertAbsolutePath, assertMediaPath, assertTrustedSender, authorizeMedia, isTrustedExternalUrl, isWebUrl, isWithinDirectory, openAuthorizedMedia } from './security'
@@ -22,7 +22,7 @@ import { validateJobConfig } from './validation'
 import { getModelCatalog, resolveAdvancedModels } from './openrouter-models'
 import { isModelId } from '../shared/openrouter-models'
 import { queueThumbnail, resolveRunClip, setCustomThumbnail, thumbnailStatus } from './thumbnail-generator'
-import { updateClipDetails } from './clip-details'
+import { deleteClips, updateClipDetails } from './clip-details'
 import { randomUUID } from 'crypto'
 import { resolveBinary, supportsCaptionFilter } from './tools'
 import { approveAutomationTikTokReview, prepareAutomationTikTokReview, addAutomationContent, addLibraryClipsToAutomation, createAutomation, deleteAutomation, isAutomationMedia, listAutomations, removeAutomationContent, runAutomation, updateAutomation, updateAutomationContent } from './automations'
@@ -48,12 +48,14 @@ import {
   openYouTubeStudio,
   listRemotePosts,
   openPostUrl,
+  getQueueSlot,
   probeClipForPosting,
   publishClip,
   refreshPosts,
   reschedulePost,
   retryPost
 } from './zernio/posts'
+import { deleteDraft, listDrafts, saveDraft } from './zernio/post-drafts'
 
 /** A passing engine check is reused briefly, so queuing several videos stays quick. */
 const ENGINE_CHECK_TTL_MS = 5 * 60 * 1000
@@ -87,7 +89,7 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
       if (!pythonValidation.ok) {
         lastEngineCheck = null
         if (pythonValidation.timedOut) return 'The clipping engine took too long to start (the computer may be busy). Please try again in a moment.'
-        return 'The clipping engine is incomplete or incompatible. Open Settings → System check, then repair the VlasiichukClip installation before starting.'
+        return 'The clipping engine is incomplete or incompatible. Open Settings → System check, then repair the vClip installation before starting.'
       }
       lastEngineCheck = { key: engineKey, at: Date.now() }
     }
@@ -147,6 +149,10 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
   handle('zernio:posts:openStudio', (_event, postId: unknown, targetIndex: unknown) => openYouTubeStudio(postId, targetIndex))
   handle('zernio:posts:listRemote', (_event, query: unknown) => listRemotePosts(query))
   handle('zernio:posts:openUrl', (_event, url: unknown, platform: unknown) => openPostUrl(url, platform))
+  handle('zernio:posts:queueSlot', (_event, profileId: unknown) => getQueueSlot(profileId))
+  handle('zernio:drafts:list', () => listDrafts())
+  handle('zernio:drafts:save', (_event, draft: unknown) => saveDraft(draft))
+  handle('zernio:drafts:delete', (_event, id: unknown) => deleteDraft(id))
 
   handle('automations:list', () => listAutomations())
   handle('automations:create', (_event, name: unknown) => createAutomation(name))
@@ -328,6 +334,22 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     } catch { return { error: 'The downloaded video could not be deleted. Close any app that is playing it and retry.' } }
   })
 
+  // The whole job folder goes to the Recycle Bin: stream, clips, thumbnails, review.
+  handle('storage:deleteJob', async (_event, value: unknown) => {
+    const jobId = reviewJobId(value)
+    if (isJobBusy(jobId)) return { error: 'Wait until this job finishes rendering.' }
+    const baseDir = loadSettings().outputDirectory
+    let dir: string
+    try { dir = runDirectory(baseDir, jobId) } catch { return { error: 'This job folder is no longer there.' } }
+    try { await shell.trashItem(dir) } catch {
+      return { error: 'The job folder could not be moved to the Recycle Bin. Close any app that has one of its files open and retry.' }
+    }
+    discardTrackedJob(jobId)
+    dismissJob(jobId)
+    logger.info('storage.deleteJob', { jobId })
+    return { ok: true }
+  })
+
   handle('diagnostics:getLogPath', () => {
     return getLogFilePath()
   })
@@ -385,6 +407,10 @@ export function registerIpcHandlers(getMainWindow: () => BrowserWindow | null): 
     if (result.canceled || result.filePaths.length === 0) return null
     return withAuthorizedPath(setCustomThumbnail(clipPath, result.filePaths[0], loadSettings().outputDirectory))
   })
+
+  // Clips go to the Recycle Bin, so a delete can be undone from Windows.
+  handle('clips:delete', (_event, clipPaths: unknown) =>
+    deleteClips(clipPaths, loadSettings().outputDirectory, (path) => shell.trashItem(path), isJobBusy))
 
   handle('clips:updateDetails', (_event, clipPath: unknown, update: unknown) => {
     const library = loadSettings().outputDirectory

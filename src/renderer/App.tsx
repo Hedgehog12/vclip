@@ -10,7 +10,7 @@ import { AccountsPage } from './pages/AccountsPage'
 import { PostsPage } from './pages/PostsPage'
 import { AutomationsPage } from './pages/AutomationsPage'
 import { UpdateModal } from './components/UpdateModal'
-import { VlasiichukClipLogo } from './components/brand/VlasiichukClipLogo'
+import { VClipLogo } from './components/brand/VClipLogo'
 import { useSettingsStore } from './store/use-settings-store'
 import { useJobStore } from './store/use-job-store'
 import { useSidebarStore } from './store/use-sidebar-store'
@@ -23,8 +23,11 @@ export default function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('clip')
   // The sidebar and shortcuts open a page at its start. For Jobs that is the
   // list: a job looked at earlier stays focused otherwise, and new jobs look missing.
+  // Library and Jobs start again (their lists) on every visit, even from inside a run or a review.
+  const [visit, setVisit] = useState(0)
   const openPage = (next: Page): void => {
     if (next === 'jobs') useJobStore.getState().focusJob(null)
+    if (next === 'library' || next === 'jobs') setVisit((count) => count + 1)
     setPage(next)
   }
 
@@ -46,7 +49,7 @@ export default function App(): React.JSX.Element {
     return unsubscribe
   }, [])
 
-  // ⌘1 Create, ⌘2 Library, ⌘3 Jobs, ⌘4 Storage, ⌘5 Accounts, ⌘6 Posts, ⌘7 Automations, ⌘, Settings,
+  // ⌘1 Create, ⌘2 Library, ⌘3 Jobs, ⌘4 Storage, ⌘6 Posts, ⌘7 Automations, ⌘, Settings (Accounts is a tab there),
   // ⌘\ collapse or expand the sidebar (Ctrl on Windows/Linux).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
@@ -63,6 +66,7 @@ export default function App(): React.JSX.Element {
       // its progress and cancel controls while the main process keeps uploading.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
       if (item.id === 'jobs') useJobStore.getState().focusJob(null)
+      if (item.id === 'library' || item.id === 'jobs') setVisit((count) => count + 1)
       setPage(item.id)
     }
     window.addEventListener('keydown', onKeyDown)
@@ -79,13 +83,13 @@ export default function App(): React.JSX.Element {
       {settingsLoaded ? (
         <Layout currentPage={page} onNavigate={openPage}>
           {page === 'clip' && <ClipPage onNavigate={setPage} />}
-          {page === 'library' && <LibraryPage onNavigate={setPage} />}
-          {page === 'jobs' && <JobsPage onNavigate={setPage} />}
+          {page === 'library' && <LibraryPage key={visit} onNavigate={setPage} />}
+          {page === 'jobs' && <JobsPage key={visit} onNavigate={setPage} />}
           {page === 'storage' && <StoragePage />}
           {page === 'accounts' && <AccountsPage onNavigate={setPage} />}
           {page === 'posts' && <PostsPage onNavigate={setPage} />}
           {page === 'automations' && <AutomationsPage onNavigate={setPage} />}
-          {page === 'settings' && <SettingsPage />}
+          {page === 'settings' && <SettingsPage onNavigate={setPage} />}
         </Layout>
       ) : (
         <div className="app-backdrop drag flex h-screen items-center justify-center">
@@ -94,7 +98,7 @@ export default function App(): React.JSX.Element {
               <p role="alert" className="text-sm text-danger">Could not load settings. Please try again.</p>
               <Button onClick={() => setRetry((value) => value + 1)}>Retry</Button>
             </div>
-          ) : <VlasiichukClipLogo className="h-7 animate-pulse opacity-80" />}
+          ) : <VClipLogo size="lg" className="animate-pulse opacity-80" />}
         </div>
       )}
       <UpdateModal />

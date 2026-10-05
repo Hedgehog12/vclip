@@ -394,7 +394,8 @@ export interface PostOptions {
   threads?: { topicTag?: string }
 }
 
-export type PostTiming = { mode: 'now' } | { mode: 'schedule'; scheduledFor: string; timezone: string }
+/** `queue`: Zernio puts the post in the profile's next free queue slot. */
+export type PostTiming = { mode: 'now' } | { mode: 'schedule'; scheduledFor: string; timezone: string } | { mode: 'queue'; profileId: string }
 
 export interface PostTarget {
   platform: ZernioPlatform
@@ -531,7 +532,7 @@ export interface RemotePostsQuery extends PostsFilter {
 /** One row of the Posts list, from local history or from the Zernio workspace. */
 export interface PostListItem {
   id: string
-  /** 'app' when VlasiichukClip made the post (it has a local record), 'zernio' otherwise. */
+  /** 'app' when vClip made the post (it has a local record), 'zernio' otherwise. */
   origin: 'app' | 'zernio'
   content: string
   status: PostStatus
@@ -608,3 +609,60 @@ export function filterAndSortPosts(items: readonly PostListItem[], filter: Posts
   }
   return matches.sort(sorters[filter.sort])
 }
+
+// ---- Queue ------------------------------------------------------------------
+
+/** The next free slot in a profile's posting queue (GET /v1/queue/next-slot). */
+export interface QueueSlot {
+  profileId: string
+  /** Null when the profile has no queue times yet, or every slot is taken. */
+  nextSlot: string | null
+  timezone: string | null
+  queueName: string | null
+}
+
+/** A queue slot the clip's upload would not live to see (Zernio keeps uploads 7 days). */
+export function queueSlotError(at: number, now: number): string | null {
+  if (!Number.isFinite(at)) return 'This profile has no free queue time. Add queue times in Zernio, or pick a time.'
+  return at > scheduleWindow(now).max
+    ? 'The next free queue time is more than 6½ days away, and Zernio keeps uploads for 7 days. Pick a time instead, or add more queue times in Zernio.'
+    : null
+}
+
+// ---- Drafts -----------------------------------------------------------------
+
+/** How the post will go out once the draft is finished. */
+export type DraftTimingMode = 'now' | 'schedule' | 'queue'
+
+/**
+ * A post being prepared, kept only on this computer: the clip is uploaded when
+ * it is posted, because Zernio deletes unpublished uploads after 7 days.
+ */
+export interface PostDraft {
+  id: string
+  clipPath: string
+  clipTitle: string
+  durationMs: number | null
+  caption: string
+  accountIds: string[]
+  useThumbnail: boolean
+  /** `tags` as typed (comma or line separated). */
+  youtube: { title: string; visibility: YouTubeVisibility; madeForKids: boolean; categoryId: string | null; tags: string }
+  shareToFeed: boolean
+  facebookFormat: FacebookFormat | null
+  /** TikTok choices. Consent is never kept: it is given for the post when it goes out. */
+  tiktok: TikTokPostOptions
+  timing: { mode: DraftTimingMode; scheduledFor: string | null }
+  createdAt: string
+  updatedAt: string
+}
+
+/** What the composer sends to save; `id` null creates a new draft. */
+export type PostDraftInput = Omit<PostDraft, 'id' | 'createdAt' | 'updatedAt'> & { id: string | null }
+
+export interface PostDraftEntry extends PostDraft {
+  /** The clip file was moved or deleted since the draft was saved. */
+  clipMissing: boolean
+}
+
+export const MAX_POST_DRAFTS = 200

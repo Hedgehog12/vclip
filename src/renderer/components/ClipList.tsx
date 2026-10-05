@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, Clapperboard, Download, FolderOpen, ListPlus, Plus, Send } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, Check, CheckCheck, Clapperboard, Download, FolderOpen, ListPlus, Plus, Send, Trash2 } from 'lucide-react'
 import { basename, cn, errorMessage } from '../lib/utils'
 import { getApi } from '../lib/ipc'
 import { clipFilePath } from '../lib/thumbnails'
@@ -15,6 +15,8 @@ import { Checkbox } from './ui/Checkbox'
 import { EmptyState } from './ui/EmptyState'
 import { Callout } from './ui/Callout'
 import { Segmented } from './ui/Segmented'
+import { ConfirmDialog, type ConfirmRequest } from './ui/ConfirmDialog'
+import { clipKey, isPosted, usePostedClips } from './PostedBadge'
 import type { Page as AppPage } from './Sidebar'
 
 type Sort = 'score' | 'timeline'
@@ -34,7 +36,7 @@ interface ClipListProps {
 const MAX_POST_BATCH = 10
 const MAX_BANK_BATCH = 30
 
-function toPostable(clip: ClipArtifact): PostableClip {
+export function toPostable(clip: ClipArtifact): PostableClip {
   return { path: clipFilePath(clip.s3_url), title: clip.summary || `Clip ${clip.clip_index + 1}`, description: clip.description ?? null, tags: clip.tags, youtubeCategory: clip.youtube_category ?? null, durationMs: clip.duration_ms }
 }
 
@@ -51,7 +53,13 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
   const exportingRef = useRef(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  // Older VlasiichukClip engine runs do not record output format; use the first thumbnail for those.
+  // Clips deleted in this view, until the run is opened again.
+  const [deleted, setDeleted] = useState<Set<number>>(new Set())
+  const [deleting, setDeleting] = useState(false)
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
+  const closeConfirm = useCallback(() => setConfirm(null), [])
+  const posted = usePostedClips()
+  // Older vClip engine runs do not record output format; use the first thumbnail for those.
   const [aspect, setAspect] = useState<number | null>(null)
   const settings = output.metrics?.requested_settings
   const requestedAspect = settings && typeof settings === 'object' && !Array.isArray(settings)
@@ -74,6 +82,7 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
     setAddedToBank(false)
     setExportError(null)
     setNotice(null)
+    setDeleted(new Set())
   }, [output])
 
   const firstClip = output.clips[0]
@@ -86,11 +95,58 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
   }, [output.clips])
 
   const clips = useMemo(() => {
-    const list = output.clips.map((clip) => edits.get(clip.clip_index) ?? clip)
+    const list = output.clips.filter((clip) => !deleted.has(clip.clip_index)).map((clip) => edits.get(clip.clip_index) ?? clip)
     return sort === 'score'
       ? list.sort((a, b) => b.virality_score - a.virality_score)
       : list.sort((a, b) => a.start_time_ms - b.start_time_ms)
-  }, [output.clips, sort, edits])
+  }, [output.clips, sort, edits, deleted])
+
+  const postedOf = (clip: ClipArtifact): ReturnType<typeof posted.get> => posted.get(clipKey(clipFilePath(clip.s3_url)))
+  const postedIndices = clips.filter((clip) => isPosted(postedOf(clip))).map((clip) => clip.clip_index)
+
+  const flash = (text: string): void => {
+    setNotice(text)
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => setNotice(null), 3500)
+  }
+
+  const askDelete = (): void => {
+    const picked = clips.filter((c) => selected.has(c.clip_index))
+    if (picked.length === 0) return
+    const scheduled = picked.filter((clip) => postedOf(clip)?.scheduled).length
+    const unposted = picked.filter((clip) => !isPosted(postedOf(clip))).length
+    setConfirm({
+      title: `Delete ${picked.length} clip${picked.length === 1 ? '' : 's'}?`,
+      body: (
+        <div className="space-y-2">
+          <p>The clip files and their thumbnails move to the Recycle Bin, so you can restore them from there. Empty the Recycle Bin to free the space.</p>
+          {unposted > 0 && <p className="text-warning">{unposted} of them {unposted === 1 ? 'isn’t' : 'aren’t'} posted anywhere yet.</p>}
+          {scheduled > 0 && <p className="text-ink-muted">Scheduled posts still go out: Zernio already has the video.</p>}
+          <p className="text-ink-muted">Posts already made stay online.</p>
+        </div>
+      ),
+      confirmLabel: `Delete ${picked.length}`,
+      onConfirm: () => void deleteSelected(picked)
+    })
+  }
+
+  const deleteSelected = async (picked: ClipArtifact[]): Promise<void> => {
+    setDeleting(true)
+    setExportError(null)
+    try {
+      const result = await getApi().clips.delete(picked.map((clip) => clipFilePath(clip.s3_url)))
+      const gone = new Set(result.deleted.map(clipKey))
+      const removed = picked.filter((clip) => gone.has(clipKey(clipFilePath(clip.s3_url)))).map((clip) => clip.clip_index)
+      setDeleted((current) => new Set([...current, ...removed]))
+      setSelected((current) => new Set([...current].filter((index) => !removed.includes(index))))
+      if (result.failed.length > 0) setExportError(`${result.failed.length} clip${result.failed.length === 1 ? '' : 's'} could not be deleted: ${result.failed[0].error}`)
+      if (removed.length > 0) flash(`Moved ${removed.length} clip${removed.length === 1 ? '' : 's'} to the Recycle Bin`)
+    } catch (err) {
+      setExportError(errorMessage(err, 'Could not delete the clips.'))
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const allSelected = selected.size > 0 && selected.size === clips.length
 
@@ -166,7 +222,7 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
       )}
 
       <div className="mt-4">
-        <RunStats key={output.job_id} output={output} costs={costs} videoSpeed={typeof videoSpeed === 'number' && videoSpeed > 1 ? videoSpeed : null} />
+        <RunStats key={output.job_id} output={deleted.size ? { ...output, clips: output.clips.filter((clip) => !deleted.has(clip.clip_index)), total_clips: output.clips.length - deleted.size } : output} costs={costs} videoSpeed={typeof videoSpeed === 'number' && videoSpeed > 1 ? videoSpeed : null} />
       </div>
 
       {framingNotice && (
@@ -190,6 +246,17 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
             onChange={() => setSelected(allSelected ? new Set() : new Set(clips.map((c) => c.clip_index)))}
             label="Select all clips"
           />
+          {postedIndices.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<CheckCheck className="h-3.5 w-3.5" />}
+              title="Select every clip that is already published, for example to delete them"
+              onClick={() => setSelected(new Set([...selected, ...postedIndices]))}
+            >
+              Select posted ({postedIndices.length})
+            </Button>
+          )}
           <span className="whitespace-nowrap text-sm text-ink-muted">
             {selected.size > 0 ? (
               <>
@@ -240,6 +307,16 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
               >
                 Export {selected.size}
               </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                loading={deleting}
+                icon={<Trash2 className="h-3.5 w-3.5" />}
+                title="Move the selected clips to the Recycle Bin"
+                onClick={askDelete}
+              >
+                Delete {selected.size}
+              </Button>
               <span aria-hidden className="mx-1 h-5 w-px bg-white/10" />
             </div>
           )}
@@ -285,11 +362,13 @@ export function ClipList({ output, outputDir: runDirectory, leading, onNewClip, 
               onPost={(latest) => setPosting([toPostable(latest ?? clip)])}
               onAddToAutomation={outputDir ? () => setBankClips([clip.clip_index]) : undefined}
               onEdited={(updated) => setEdits((current) => new Map(current).set(updated.clip_index, updated))}
+              posted={postedOf(clip)}
             />
           ))}
         </div>
       )}
 
+      {confirm && <ConfirmDialog request={confirm} onClose={closeConfirm} />}
       {posting && <PostDialog clips={posting} onClose={() => setPosting(null)} onNavigate={onNavigate} />}
       {bankClips && outputDir && <AddToAutomationDialog
         outputDir={outputDir}

@@ -562,6 +562,7 @@ async function withPosting(fn, { clip = {}, mockOptions = {} } = {}) {
     const { electron, calls } = fakeElectron(dir)
     const main = loadMain(`
       export * as posts from './src/main/zernio/posts'
+      export * as drafts from './src/main/zernio/post-drafts'
       export * as settings from './src/main/settings-store'
       export * as service from './src/main/zernio/service'
     `, { electron })
@@ -1309,4 +1310,78 @@ test('the workspace list includes posts made on zernio.com and keeps local recor
   await assert.rejects(main.posts.openPostUrl('https://evil.example/reel/1', 'instagram'), /can’t be opened/)
   await main.posts.openPostUrl('https://www.instagram.com/reel/abc', 'instagram')
   assert.equal(calls.openExternal.at(-1), 'https://www.instagram.com/reel/abc')
+}))
+
+// ---- Queue ------------------------------------------------------------------
+
+test('a queued post sends queuedFromProfile and records the slot Zernio took', () => withPosting(async ({ mock, posting, main, accounts, publish }) => {
+  const [profile] = mock.state.profiles
+  const slot = new Date(Date.now() + 2 * DAY).toISOString()
+  posting.state.queues.set(profile._id, [slot])
+  assert.deepEqual({ ...(await main.posts.getQueueSlot(profile._id)) }, { profileId: profile._id, nextSlot: slot, timezone: 'Europe/Berlin', queueName: 'Weekday mornings' })
+
+  const result = await publish({ timing: { mode: 'queue', profileId: profile._id }, targets: [{ platform: 'youtube', accountId: accounts.youtube._id }] })
+  assert.equal(result.outcome, 'scheduled')
+  assert.match(result.message, /queue/)
+  assert.equal(result.post.scheduledFor, slot)
+  const body = posting.state.creates[0].body
+  assert.equal(body.queuedFromProfile, profile._id)
+  assert.equal(body.scheduledFor, undefined, 'the slot is left to Zernio')
+  assert.equal(main.posts.listPosts()[0].status, 'scheduled')
+  assert.equal((await main.posts.getQueueSlot(profile._id)).nextSlot, null, 'no free slot left')
+}))
+
+test('a queue post is refused before uploading when the slot is missing, too far away, or the accounts span profiles', () => withPosting(async ({ mock, posting, accounts, publish }) => {
+  const [profile] = mock.state.profiles
+  const queue = (targets = [{ platform: 'youtube', accountId: accounts.youtube._id }]) => publish({ timing: { mode: 'queue', profileId: profile._id }, targets })
+
+  await assert.rejects(queue(), /no free queue time/)
+  posting.state.queues.set(profile._id, [new Date(Date.now() + 7 * DAY).toISOString()])
+  await assert.rejects(queue(), /more than 6½ days away/)
+
+  posting.state.queues.set(profile._id, [new Date(Date.now() + DAY).toISOString()])
+  const other = mock.addProfile('Brand B')
+  const instagramB = mock.addAccount('instagram', other._id, { username: 'brandb' })
+  await assert.rejects(queue([{ platform: 'youtube', accountId: accounts.youtube._id }, { platform: 'instagram', accountId: instagramB._id }]), /one profile/)
+  assert.equal(posting.state.uploads.length, 0, 'nothing was uploaded')
+  assert.equal(posting.state.creates.length, 0)
+  assert.throws(() => payload.parsePostClipRequest({ attemptId: 'x'.repeat(16), clipPath: '/a.mp4', clipTitle: 'a', durationMs: 1, caption: '', targets: [{ platform: 'youtube', accountId: 'a'.repeat(24) }], options: {}, timing: { mode: 'queue', profileId: 'not an id' } }), /queue profile/)
+}))
+
+// ---- Drafts -----------------------------------------------------------------
+
+test('drafts are kept on this computer per workspace, never keep TikTok consent, and survive damaged fields', () => withPosting(async ({ main, clipPath, accounts, userData }) => {
+  const input = {
+    id: null, clipPath, clipTitle: 'Why agents need tests', durationMs: 4000, caption: 'Draft caption #ai',
+    accountIds: [accounts.youtube._id, accounts.tiktok._id, 'not an id'], useThumbnail: false,
+    youtube: { title: 'Why agents need tests', visibility: 'unlisted', madeForKids: false, categoryId: '28', tags: 'ai, claude' },
+    shareToFeed: true, facebookFormat: null,
+    tiktok: { accounts: { [accounts.tiktok._id]: { privacyLevel: 'SELF_ONLY', allowComment: true, allowDuet: false, allowStitch: false } }, disclose: false, yourBrand: false, brandedContent: false, madeWithAi: true, draft: false, consent: true },
+    timing: { mode: 'schedule', scheduledFor: new Date(Date.now() + DAY).toISOString() }
+  }
+  const saved = main.drafts.saveDraft(input)
+  assert.match(saved.id, /^[0-9a-f-]{36}$/)
+  assert.deepEqual([...saved.accountIds], [accounts.youtube._id, accounts.tiktok._id])
+  assert.equal(saved.tiktok.consent, false, 'consent is given when posting, not stored')
+  assert.equal(saved.tiktok.accounts[accounts.tiktok._id].privacyLevel, 'SELF_ONLY')
+  assert.equal(saved.youtube.tags, 'ai, claude')
+
+  const updated = main.drafts.saveDraft({ ...input, id: saved.id, caption: 'Edited', timing: { mode: 'banana', scheduledFor: 'soon' } })
+  assert.equal(updated.createdAt, saved.createdAt)
+  assert.deepEqual({ ...updated.timing }, { mode: 'now', scheduledFor: null }, 'bad timing falls back instead of losing the draft')
+  const list = main.drafts.listDrafts()
+  assert.equal(list.length, 1)
+  assert.equal(list[0].caption, 'Edited')
+  assert.equal(list[0].clipMissing, false)
+
+  const file = fs.readdirSync(userData).find((name) => name.startsWith('post-drafts-'))
+  assert.ok(file, 'stored in userData')
+  assert.equal(fs.readFileSync(path.join(userData, file), 'utf8').includes(KEY), false)
+
+  assert.throws(() => main.drafts.saveDraft({ ...input, clipPath: 'relative.mp4' }), /can’t be saved/)
+  assert.throws(() => main.drafts.saveDraft({ ...input, id: 'f'.repeat(36) }), /was deleted/)
+  fs.renameSync(clipPath, `${clipPath}.moved`)
+  assert.equal(main.drafts.listDrafts()[0].clipMissing, true)
+  assert.deepEqual(main.drafts.deleteDraft(saved.id), [])
+  assert.throws(() => main.drafts.deleteDraft('../x'), /Unknown draft/)
 }))

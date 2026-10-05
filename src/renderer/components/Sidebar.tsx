@@ -1,25 +1,25 @@
-import { ChevronRight, Film, HardDrive, Layers, PanelLeftClose, PanelLeftOpen, Send, Settings, UsersRound, WandSparkles, Workflow, type LucideIcon } from 'lucide-react'
+import { ChevronRight, Film, HardDrive, Layers, PanelLeftClose, PanelLeftOpen, Send, Settings, WandSparkles, Workflow, type LucideIcon } from 'lucide-react'
 import { cn, MOD_KEY, sourceLabel } from '../lib/utils'
 import { useIsWide, useSidebarExpanded, useSidebarStore } from '../store/use-sidebar-store'
 import { useActiveJobs, useJobStore } from '../store/use-job-store'
 import { useSetupState } from '../store/use-settings-store'
 import { APP_VERSION } from '../config/brand'
-import { VlasiichukClipLogo } from './brand/VlasiichukClipLogo'
+import { VClipLogo } from './brand/VClipLogo'
 import { ProgressBar } from './ui/ProgressBar'
 import { StatusDot } from './ui/Badge'
 import { STAGE_LABELS } from './JobProgress'
 
 export type Page = 'clip' | 'library' | 'jobs' | 'storage' | 'accounts' | 'posts' | 'automations' | 'settings'
 
-export const NAV_ITEMS: { id: Page; label: string; icon: LucideIcon; shortcut: string; group: 'studio' | 'app' }[] = [
+/** `bottom` items sit at the foot of the sidebar, without a heading. */
+export const NAV_ITEMS: { id: Page; label: string; icon: LucideIcon; shortcut: string; group: 'studio' | 'social' | 'bottom' }[] = [
   { id: 'clip', label: 'Create', icon: WandSparkles, shortcut: '1', group: 'studio' },
   { id: 'library', label: 'Library', icon: Film, shortcut: '2', group: 'studio' },
   { id: 'jobs', label: 'Jobs', icon: Layers, shortcut: '3', group: 'studio' },
-  { id: 'storage', label: 'Storage', icon: HardDrive, shortcut: '4', group: 'studio' },
-  { id: 'accounts', label: 'Accounts', icon: UsersRound, shortcut: '5', group: 'app' },
-  { id: 'posts', label: 'Posts', icon: Send, shortcut: '6', group: 'app' },
-  { id: 'automations', label: 'Automations', icon: Workflow, shortcut: '7', group: 'app' },
-  { id: 'settings', label: 'Settings', icon: Settings, shortcut: ',', group: 'app' }
+  { id: 'posts', label: 'Posts', icon: Send, shortcut: '6', group: 'social' },
+  { id: 'automations', label: 'Automations', icon: Workflow, shortcut: '7', group: 'social' },
+  { id: 'storage', label: 'Storage', icon: HardDrive, shortcut: '4', group: 'bottom' },
+  { id: 'settings', label: 'Settings', icon: Settings, shortcut: ',', group: 'bottom' }
 ]
 
 interface SidebarProps {
@@ -37,6 +37,10 @@ export const SIDEBAR_SHORTCUT_KEY = '\\'
  */
 export function Sidebar({ currentPage, onNavigate }: SidebarProps): React.JSX.Element {
   const expanded = useSidebarExpanded()
+  const navButtons = (group: (typeof NAV_ITEMS)[number]['group']): React.JSX.Element[] =>
+    NAV_ITEMS.filter((item) => item.group === group).map((item) => (
+      <NavButton key={item.id} item={item} expanded={expanded} active={currentPage === item.id || (item.id === 'settings' && currentPage === 'accounts')} onNavigate={onNavigate} />
+    ))
   return (
     <aside
       id="sidebar"
@@ -48,10 +52,10 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps): React.JSX.El
       {/* Title-bar strip: the macOS traffic lights sit here. Matches Layout's strip height. */}
       <div className="drag h-10 shrink-0" />
 
-      <div className={cn('flex h-9 items-center pb-3', expanded ? 'justify-between pl-4 pr-2.5' : 'justify-center px-2')}>
+      <div className={cn('flex h-12 items-center pb-3', expanded ? 'justify-between pl-4 pr-2.5' : 'justify-center px-2')}>
         {expanded ? (
           <>
-            <VlasiichukClipLogo className="h-5" />
+            <VClipLogo />
             <SidebarToggle />
           </>
         ) : (
@@ -59,20 +63,20 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps): React.JSX.El
         )}
       </div>
 
-      <nav className={expanded ? 'px-2.5' : 'px-3'} aria-label="Main">
+      <nav className={cn('flex min-h-0 flex-1 flex-col', expanded ? 'px-2.5' : 'px-3')} aria-label="Main">
         <NavGroup label="Studio" expanded={expanded}>
-          {NAV_ITEMS.filter((item) => item.group === 'studio').map((item) => (
-            <NavButton key={item.id} item={item} expanded={expanded} active={currentPage === item.id} onNavigate={onNavigate} />
-          ))}
+          {navButtons('studio')}
         </NavGroup>
-        <NavGroup label="Workspace" expanded={expanded} className={cn('mt-4', !expanded && 'mx-2 border-t border-white/[0.06] pt-3 [&>div]:-mx-2')}>
-          {NAV_ITEMS.filter((item) => item.group === 'app').map((item) => (
-            <NavButton key={item.id} item={item} expanded={expanded} active={currentPage === item.id} onNavigate={onNavigate} />
-          ))}
+        <NavGroup label="Social" expanded={expanded} className={cn('mt-4', !expanded && 'mx-2 border-t border-white/[0.06] pt-3 [&>div]:-mx-2')}>
+          {navButtons('social')}
         </NavGroup>
+        {/* Used now and then, so out of the way at the foot of the sidebar. */}
+        <div className="mt-auto space-y-0.5 border-t border-white/[0.06] pt-2.5">
+          {navButtons('bottom')}
+        </div>
       </nav>
 
-      <div className={cn('mt-auto space-y-1.5', expanded ? 'p-2.5' : 'p-2')}>
+      <div className={cn('space-y-1.5', expanded ? 'p-2.5' : 'p-2')}>
         {currentPage !== 'jobs' && <ActiveJobsCard expanded={expanded} onOpen={() => onNavigate('jobs')} />}
         <div className={cn('flex items-center gap-1', !expanded && 'justify-center')}>
           <SetupStatus expanded={expanded} onOpenSettings={() => onNavigate('settings')} />
@@ -93,7 +97,7 @@ function SidebarToggle({ rail = false }: { rail?: boolean }): React.JSX.Element 
   const wide = useIsWide()
   const expanded = useSidebarExpanded()
   const toggle = useSidebarStore((s) => s.toggle)
-  if (rail && !wide) return <VlasiichukClipLogo variant="mark" className="h-6" />
+  if (rail && !wide) return <VClipLogo variant="mark" className="h-6" />
   const label = expanded ? 'Collapse sidebar' : 'Expand sidebar'
   const hint = `${label} (${MOD_KEY}${SIDEBAR_SHORTCUT_KEY})`
   if (!rail && !wide) return <span />
@@ -111,7 +115,7 @@ function SidebarToggle({ rail = false }: { rail?: boolean }): React.JSX.Element 
     >
       {rail ? (
         <>
-          <VlasiichukClipLogo variant="mark" className="h-6 transition-opacity duration-150 group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0" />
+          <VClipLogo variant="mark" className="h-6 transition-opacity duration-150 group-hover/toggle:opacity-0 group-focus-visible/toggle:opacity-0" />
           <PanelLeftOpen className="absolute h-4 w-4 opacity-0 transition-opacity duration-150 group-hover/toggle:opacity-100 group-focus-visible/toggle:opacity-100" strokeWidth={1.9} />
         </>
       ) : (
@@ -124,7 +128,7 @@ function SidebarToggle({ rail = false }: { rail?: boolean }): React.JSX.Element 
 function NavGroup({ label, expanded, className, children }: { label: string; expanded: boolean; className?: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <div className={className}>
-      {expanded && <p aria-hidden className="eyebrow mb-1 px-2.5 text-[10px] text-ink-faint">{label}</p>}
+      {expanded && <p aria-hidden className="eyebrow mb-1 px-2.5 text-[11px]">{label}</p>}
       <div className="space-y-0.5">{children}</div>
     </div>
   )
@@ -153,16 +157,15 @@ function NavButton({ item, expanded, active, onNavigate }: {
         'group relative flex w-full items-center gap-2.5 text-sm transition-[background,color,box-shadow] duration-200 ease-out',
         expanded ? 'h-8 justify-start rounded-full px-3' : 'h-9 justify-center rounded-xl',
         active
-          ? 'bg-white/[0.1] font-medium text-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.16),inset_0_0_0_1px_rgb(255_255_255/0.08)]'
-          : 'text-ink-muted hover:bg-white/[0.05] hover:text-ink'
+          ? 'bg-hair/[0.09] text-ink shadow-[inset_0_0_0_1px_rgb(var(--hair)/0.1)]'
+          : 'text-ink-muted hover:bg-hair/[0.05] hover:text-ink'
       )}
     >
       <Icon
         className={cn(
           'h-4 w-4 shrink-0 transition-colors',
-          active ? 'text-accent-hover' : 'text-ink-subtle group-hover:text-ink-muted'
+          active ? 'text-accent' : 'text-ink-subtle group-hover:text-ink-muted'
         )}
-        strokeWidth={active ? 2.2 : 1.9}
       />
       {!expanded && (badge || reviewBadge) && (
         <span aria-hidden className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full shadow-[0_0_0_2px_rgb(var(--canvas))]', badge ? 'bg-accent' : 'bg-warning')} />

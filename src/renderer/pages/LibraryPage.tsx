@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Clapperboard, FolderOpen, ListVideo, RefreshCw, Search, Sparkles } from 'lucide-react'
 import { getApi } from '../lib/ipc'
-import { cn, errorMessage, formatRelativeDate, formatUsd, localFileUrl } from '../lib/utils'
-import { clipFilePath, loadThumbnail } from '../lib/thumbnails'
+import { cn, errorMessage, formatRelativeDate, formatUsd } from '../lib/utils'
+import { clipFilePath, loadClipCover } from '../lib/thumbnails'
 import { useSettingsStore } from '../store/use-settings-store'
 import type { JobOutput } from '../store/use-job-store'
 import { parseJobOutput } from '../../shared/job-output'
@@ -197,8 +197,7 @@ function RunCard({ entry, onOpen, onOpenFolder }: {
   onOpenFolder: () => void
 }): React.JSX.Element {
   const failed = entry.status !== 'completed'
-  const thumb = useRunThumbnail(failed ? null : entry.outputDir)
-  const [previewFailed, setPreviewFailed] = useState(false)
+  const covers = useRunCovers(failed ? null : entry.outputDir)
 
   return (
     <button
@@ -210,17 +209,21 @@ function RunCard({ entry, onOpen, onOpenFolder }: {
       )}
     >
       <div className="relative aspect-video overflow-hidden rounded-xl bg-black/40 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.06)]">
-        {thumb && !previewFailed ? (
+        {covers && covers.length > 0 ? (
           <>
-            {/* Vertical clips sit on a blurred copy of themselves to fill the 16:9 frame. */}
-            <img src={localFileUrl(thumb)} alt="" className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-2xl saturate-150" />
-            <img
-              src={localFileUrl(thumb)}
-              alt=""
-              draggable={false}
-              className="relative h-full w-full object-contain transition-transform duration-500 ease-out group-hover:scale-[1.04]"
-              onError={() => setPreviewFailed(true)}
-            />
+            {/* Up to five clips side by side, on a blurred copy of the best one. */}
+            <img src={covers[0]} alt="" className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-2xl saturate-150" />
+            <div className="relative flex h-full items-stretch justify-center gap-1 p-2 transition-transform duration-500 ease-out group-hover:scale-[1.03]">
+              {covers.map((url) => (
+                <img
+                  key={url}
+                  src={url}
+                  alt=""
+                  draggable={false}
+                  className="min-w-0 max-w-[31.6%] flex-1 rounded-lg object-cover shadow-[0_8px_20px_-10px_rgb(0_0_0/0.8)] ring-1 ring-white/[0.12]"
+                />
+              ))}
+            </div>
           </>
         ) : failed ? (
           <div className="flex h-full items-center justify-center text-danger/70">
@@ -254,31 +257,34 @@ function RunCard({ entry, onOpen, onOpenFolder }: {
   )
 }
 
-/** Thumbnail of a run's best clip, loaded through the shared thumbnail queue. */
-function useRunThumbnail(outputDir: string | null): string | null {
-  const [thumb, setThumb] = useState<string | null>(null)
+/** Clips shown on a run's card. */
+const RUN_COVERS = 5
+
+/**
+ * Pictures of a run's best clips (up to five, best first): each clip's own
+ * thumbnail when it has one, else a frame. Null while loading; an empty list
+ * when the run has none to show.
+ */
+function useRunCovers(outputDir: string | null): string[] | null {
+  const [covers, setCovers] = useState<string[] | null>(null)
   useEffect(() => {
-    setThumb(null)
+    setCovers(null)
     if (!outputDir) return
     let cancelled = false
     getApi()
       .history.getJob(outputDir)
       .then((raw) => {
-        const output = parseJobOutput(raw)
-        const best = output?.clips.reduce<JobOutput['clips'][number] | null>(
-          (top, c) => (!top || c.virality_score > top.virality_score ? c : top),
-          null
-        )
-        if (!best || cancelled) return null
-        return loadThumbnail(clipFilePath(best.s3_url), best.duration_ms > 0 ? best.duration_ms / 2000 : undefined)
+        const best = [...(parseJobOutput(raw)?.clips ?? [])].sort((a, b) => b.virality_score - a.virality_score).slice(0, RUN_COVERS)
+        if (cancelled) return []
+        return Promise.all(best.map((clip) => loadClipCover(clipFilePath(clip.s3_url), clip.duration_ms)))
       })
-      .then((path) => {
-        if (!cancelled && path) setThumb(path)
+      .then((urls) => {
+        if (!cancelled) setCovers(urls.filter((url): url is string => Boolean(url)))
       })
-      .catch(() => {})
+      .catch(() => { if (!cancelled) setCovers([]) })
     return () => {
       cancelled = true
     }
   }, [outputDir])
-  return thumb
+  return covers
 }

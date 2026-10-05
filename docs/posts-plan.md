@@ -63,16 +63,16 @@ Branch: start `feat/posts-planner` from `feat/thumbnails-cold-open-posting`
 
 ## Phase 4: Composer and drafts (matches screenshot 1)
 
-- [ ] Make `PostDialog` work without a preselected clip: add a **media picker** that lists the clips of finished runs
+- [x] Make `PostDialog` work without a preselected clip: add a **media picker** that lists the clips of finished runs
       (from `history`) with thumbnail, title and duration, plus search.
-- [ ] Profile selector, then accounts from that profile (the same pattern as automations).
-- [ ] Publishing mode segmented control: **Schedule · Now · Queue · Draft**.
-  - [ ] Schedule: date, time and time-zone picker. Past 6.5 days → "planned locally" (see constraints).
-  - [ ] Queue: show the profile's next slot (`/v1/queue/next-slot`). Reject it if it falls outside the 7-day window. Send `queuedFromProfile`.
-  - [ ] Draft: **Save draft** writes only to the local store, with no upload.
-- [ ] Open a draft from the list or calendar → composer prefilled → finish → Schedule, Now or Queue → the draft is removed when it succeeds.
-- [ ] Autosave the open composer to its draft (debounced) so nothing is lost on close.
-- [ ] Entry points: the Posts page "Create post" button, the Library clip "Post" button (unchanged), and a calendar day click (time prefilled).
+- [x] Profile filter above the account list (shown with more than one profile); Queue uses the selected accounts' profile.
+- [x] Publishing mode segmented control: **Schedule · Now · Queue · Draft**.
+  - [ ] Schedule past 6.5 days → "planned locally" with automatic upload later: NOT done. A draft can hold a later time ("Planned for …"), but it is posted by hand.
+  - [x] Queue: show the profile's next slot (`/v1/queue/next-slot`). Reject it if it falls outside the 7-day window. Send `queuedFromProfile`.
+  - [x] Draft: **Save draft** writes only to the local store, with no upload.
+- [x] Open a draft from the Drafts panel (calendar comes in Phase 5) → composer prefilled → finish → Schedule, Now or Queue → the draft is removed when it succeeds.
+- [x] Autosave the open composer to its draft (debounced) so nothing is lost on close.
+- [x] Entry points: the Posts page "Create post" button and the Library clip "Post" button (which can now also save a draft). Calendar day click: Phase 5.
 
 ## Phase 5: Calendar view (matches screenshot 2)
 

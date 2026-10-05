@@ -39,7 +39,11 @@ test('accounts: set up, connect, reconnect, disconnect, recover and work offline
   const shot = async (name) => { if (shots) await page.screenshot({ path: path.join(shots, `${name}.png`) }).catch(() => {}) }
   const row = (platform) => page.locator(`li[data-platform="${platform}"]`)
   const notice = () => page.getByTestId('accounts-notice')
-  const openAccounts = () => page.locator('nav[aria-label="Main"] button', { hasText: 'Accounts' }).click()
+  // Accounts is a tab under Settings.
+  const openAccounts = async () => {
+    await page.locator('nav[aria-label="Main"] button', { hasText: 'Settings' }).click()
+    await page.getByRole('radio', { name: 'Accounts' }).click()
+  }
   const openSettings = () => page.locator('nav[aria-label="Main"] button', { hasText: 'Settings' }).click()
   const expectNotice = (pattern) => notice().filter({ hasText: pattern }).waitFor({ timeout: TIMEOUT })
   const expectRowState = (platform, state) => page.locator(`li[data-platform="${platform}"][data-state="${state}"]`).waitFor({ timeout: TIMEOUT })

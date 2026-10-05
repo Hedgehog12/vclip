@@ -273,7 +273,7 @@ test('without a Zernio key the dialog points to Accounts', { timeout: 300_000 },
   await shot(page, '08-no-key')
   await dialog.getByRole('button', { name: 'Go to Accounts' }).click()
   await dialog.waitFor({ state: 'detached' })
-  await page.getByRole('heading', { name: 'Accounts', level: 1 }).waitFor()
+  await page.getByRole('radio', { name: 'Accounts', checked: true }).waitFor()
   assert.equal(mock.state.requests.length, 0, 'nothing reaches Zernio without a key')
 })
 
@@ -360,4 +360,52 @@ test('many accounts across profiles: several TikToks with their own privacy choi
   assert.equal(entries[tiktokC._id].platformSpecificData.tiktokSettings.allow_comment, false)
   assert.equal(mock.state.requests.filter((r) => r.path.endsWith('/tiktok/creator-info')).length, 3, 'creator info once per TikTok account')
   assert.equal(await dialog.getByRole('listitem').count(), 5)
+})
+
+test('Create post: pick a clip, keep it as a draft, reopen it after a restart and add it to the queue', { timeout: 300_000 }, async (t) => {
+  const { page, mock, posting, accounts } = await start(t)
+  const profileId = mock.state.profiles[0]._id
+  posting.state.queues.set(profileId, [new Date(Date.now() + 26 * 3_600_000).toISOString()])
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /Posts/ }).click()
+
+  // Create post → choose the clip → save as a draft (nothing reaches Zernio).
+  await page.getByRole('button', { name: 'Create post' }).first().click()
+  await page.getByRole('button', { name: new RegExp(CLIP_TITLE) }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('checkbox', { name: /YouTube @channel/ }).click()
+  await dialog.getByRole('radio', { name: 'Draft' }).click()
+  await dialog.getByRole('button', { name: 'Save as draft' }).click()
+  await dialog.getByText('Draft saved.').waitFor()
+  await shot(page, '20-draft-saved')
+  // A change, then closing at once: the pending autosave still runs.
+  await dialog.getByRole('textbox', { name: /caption/i }).fill('Edited just before closing')
+  await dialog.getByRole('button', { name: 'Close' }).last().click()
+  const drafts = page.getByRole('list', { name: 'Drafts' })
+  await drafts.waitFor()
+  assert.equal(posting.state.uploads.length, 0, 'a draft uploads nothing')
+  assert.equal(posting.state.creates.length, 0)
+
+  // After a reload the draft opens before accounts are fresh, and keeps its account and text.
+  await page.reload()
+  await page.waitForLoadState('domcontentloaded')
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /Posts/ }).click()
+  await drafts.getByRole('button', { name: 'Open' }).click()
+  assert.equal(await dialog.getByRole('textbox', { name: /caption/i }).inputValue(), 'Edited just before closing')
+  await dialog.getByRole('checkbox', { name: /YouTube @channel/, checked: true }).waitFor()
+  const saved = await page.evaluate(() => window.vlasiichukclip.zernio.drafts.list())
+  assert.deepEqual(saved[0].accountIds, [accounts.youtube._id], 'opening the draft did not drop its account')
+
+  // Finish it: Queue → Zernio picks the slot; the draft is gone.
+  await dialog.getByRole('radio', { name: 'Queue' }).click()
+  await dialog.getByText(/Next free queue time/).waitFor()
+  await dialog.getByRole('button', { name: 'Add to queue' }).click()
+  await dialog.getByRole('button', { name: 'Done' }).waitFor({ timeout: 60_000 })
+  await shot(page, '21-queued')
+  assert.equal(posting.state.creates.length, 1)
+  assert.equal(posting.state.creates[0].body.queuedFromProfile, profileId)
+  assert.equal(posting.state.creates[0].body.content, 'Edited just before closing')
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await drafts.waitFor({ state: 'detached' })
+  assert.deepEqual(await page.evaluate(() => window.vlasiichukclip.zernio.drafts.list()), [])
+  await page.getByRole('list', { name: 'Posts' }).getByText(CLIP_TITLE).waitFor()
 })

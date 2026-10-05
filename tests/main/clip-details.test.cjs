@@ -68,3 +68,37 @@ test('invalid edits are refused and leave the file as it was', () => {
     assert.equal(fs.readFileSync(path.join(ctx.runDir, 'job_output.json'), 'utf8'), before)
   } finally { ctx.cleanup() }
 })
+
+test('deleting clips moves every clip_XX file to the Recycle Bin and drops them from the run', async () => {
+  const ctx = setup()
+  try {
+    for (const name of ['clip_00.mp4', 'clip_00.thumbnail.png', 'clip_01.thumbnail.png', 'clip_010.mp4']) fs.writeFileSync(path.join(ctx.runDir, name), 'x')
+    const trashed = []
+    const result = await ctx.details.deleteClips([ctx.clip], ctx.library, async (file) => { trashed.push(path.basename(file)); fs.rmSync(file) })
+    assert.deepEqual([...result.deleted], [ctx.clip])
+    assert.equal(result.failed.length, 0)
+    assert.deepEqual(trashed.sort(), ['clip_01.mp4', 'clip_01.thumbnail.png'], 'only this clip’s files, not clip_010')
+    const saved = ctx.read()
+    assert.deepEqual(saved.clips.map((c) => c.clip_index), [0])
+    assert.deepEqual(saved.engine_extra, { kept: true })
+    assert.ok(fs.existsSync(path.join(ctx.runDir, 'clip_00.thumbnail.png')))
+  } finally { ctx.cleanup() }
+})
+
+test('a clip that can’t be moved or belongs to a rendering job stays listed', async () => {
+  const ctx = setup()
+  try {
+    const failing = await ctx.details.deleteClips([ctx.clip], ctx.library, async () => { throw new Error('locked') })
+    assert.equal(failing.deleted.length, 0)
+    assert.match(failing.failed[0].error, /Recycle Bin/)
+    assert.equal(ctx.read().clips.length, 2)
+
+    const busy = await ctx.details.deleteClips([ctx.clip], ctx.library, async () => {}, () => true)
+    assert.match(busy.failed[0].error, /rendering/)
+    const outside = await ctx.details.deleteClips(['C:/elsewhere/notes.txt'], ctx.library, async () => {})
+    assert.equal(outside.deleted.length, 0)
+    assert.equal(outside.failed.length, 1)
+    await assert.rejects(ctx.details.deleteClips([], ctx.library, async () => {}), /Choose the clips/)
+    assert.equal(ctx.read().clips.length, 2)
+  } finally { ctx.cleanup() }
+})

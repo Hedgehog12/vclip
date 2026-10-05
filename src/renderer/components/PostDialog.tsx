@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpRight, CalendarClock, Check, Inbox, Loader2, Play, Search, Send, Share2, X } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, CalendarClock, Check, FileText, Inbox, ListOrdered, Loader2, Play, Search, Send, Share2, X } from 'lucide-react'
 import { getApi } from '../lib/ipc'
+import { ZERNIO_LINKS } from '../../shared/brand'
 import { cn, errorMessage, localFileUrl } from '../lib/utils'
 import { loadThumbnail } from '../lib/thumbnails'
 import { useSettingsStore } from '../store/use-settings-store'
@@ -27,7 +28,11 @@ import {
   type ClipMediaInfo,
   type FacebookFormat,
   type PostClipResult,
+  type PostDraft,
+  type PostDraftInput,
   type PostProgress,
+  type QueueSlot,
+  queueSlotError,
   type PostRecordTarget,
   type TikTokAccountOptions,
   type TikTokCreatorInfo,
@@ -70,11 +75,25 @@ export interface PostableClip {
 interface PostDialogProps {
   /** One clip, or several posted one after another with the same accounts and options. */
   clips: PostableClip[]
+  /** Continue a saved draft (its clip is `clips[0]`). */
+  draft?: PostDraft | null
+  /** A draft was saved, posted (and so deleted) or changed. */
+  onDraftsChanged?: () => void
   onClose: () => void
   onNavigate?: (page: Page) => void
 }
 
 type Phase = 'editing' | 'sending' | 'done'
+/** How the post goes out, or `draft` to keep it on this computer for later. */
+type SendMode = 'now' | 'schedule' | 'queue' | 'draft'
+type QueueState = { status: 'loading' } | { status: 'ready'; slot: QueueSlot } | { status: 'error'; message: string }
+/** Wait this long after the last change before saving an open draft. */
+const DRAFT_AUTOSAVE_MS = 1200
+
+/** The clip a draft was made for, as the dialog takes it. */
+export function postableFromDraft(draft: Pick<PostDraft, 'clipPath' | 'clipTitle' | 'durationMs' | 'youtube'>): PostableClip {
+  return { path: draft.clipPath, title: draft.clipTitle || 'Untitled clip', description: null, tags: [], youtubeCategory: draft.youtube.categoryId, durationMs: draft.durationMs ?? 0 }
+}
 
 /** The AI's category for the clip, else YouTube's default. */
 const CATEGORY_STORAGE_KEY = 'vlasiichukclip.youtube.defaultCategory'
@@ -170,7 +189,7 @@ function isCreatorInfo(value: CreatorInfoState | undefined): value is TikTokCrea
   return typeof value === 'object' && value !== null && 'privacyLevels' in value
 }
 
-export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): React.JSX.Element {
+export function PostDialog({ clips, draft = null, onDraftsChanged, onClose, onNavigate }: PostDialogProps): React.JSX.Element {
   const zernioConfigured = useSettingsStore((s) => s.zernioConfigured)
   const { accounts, profiles, loaded: accountsLoaded, loading: accountsLoading, error: accountsError, load: loadAccounts } = useAccountsStore()
 
@@ -183,27 +202,41 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
   // Per clip.
   const [media, setMedia] = useState<ClipMediaInfo | null>(null)
   const [thumb, setThumb] = useState<string | null>(null)
-  const [caption, setCaption] = useState(() => captionFor(clip))
+  const [caption, setCaption] = useState(() => draft?.caption ?? captionFor(clip))
   // The clip's own thumbnail, sent as the Instagram cover and YouTube thumbnail.
   const [cover, setCover] = useState<AiThumbnail | null>(null)
-  const [useCover, setUseCover] = useState(true)
-  const [youtube, setYoutube] = useState<YouTubePostOptions>(() => ({ title: youtubeTitleFor(clip.title) || 'Untitled clip', visibility: 'public', madeForKids: false, categoryId: categoryFor(clip) }))
+  const [useCover, setUseCover] = useState(draft?.useThumbnail ?? true)
+  const [youtube, setYoutube] = useState<YouTubePostOptions>(() => draft
+    ? { title: draft.youtube.title, visibility: draft.youtube.visibility, madeForKids: draft.youtube.madeForKids, categoryId: draft.youtube.categoryId ?? categoryFor(clip) }
+    : { title: youtubeTitleFor(clip.title) || 'Untitled clip', visibility: 'public', madeForKids: false, categoryId: categoryFor(clip) })
   // YouTube keyword tags, edited as text: the clip's AI tags to start with.
-  const [youtubeTags, setYoutubeTags] = useState(() => youtubeTagsFrom(clip.tags).join(', '))
+  const [youtubeTags, setYoutubeTags] = useState(() => draft?.youtube.tags ?? youtubeTagsFrom(clip.tags).join(', '))
   const [phase, setPhase] = useState<Phase>('editing')
   const [progress, setProgress] = useState<PostProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PostClipResult | null>(null)
 
   // Kept across clips in a batch.
-  const [selected, setSelected] = useState<string[]>([])
-  const [tiktok, setTiktok] = useState<TikTokPostOptions>(EMPTY_TIKTOK)
+  const [selected, setSelected] = useState<string[]>(() => draft?.accountIds ?? [])
+  const [tiktok, setTiktok] = useState<TikTokPostOptions>(() => draft?.tiktok ?? EMPTY_TIKTOK)
   const [creatorInfo, setCreatorInfo] = useState<Record<string, CreatorInfoState>>({})
-  const [shareToFeed, setShareToFeed] = useState(true)
-  const [facebookFormat, setFacebookFormat] = useState<FacebookFormat | null>(null)
-  const [mode, setMode] = useState<'now' | 'schedule'>('now')
-  const [scheduleValue, setScheduleValue] = useState(defaultScheduleValue)
+  const [shareToFeed, setShareToFeed] = useState(draft?.shareToFeed ?? true)
+  const [facebookFormat, setFacebookFormat] = useState<FacebookFormat | null>(draft?.facebookFormat ?? null)
+  const [mode, setMode] = useState<SendMode>(draft?.timing.mode ?? 'now')
+  const [scheduleValue, setScheduleValue] = useState(() => {
+    const at = draft?.timing.scheduledFor ? Date.parse(draft.timing.scheduledFor) : NaN
+    return Number.isFinite(at) && at > Date.now() ? toLocalInput(at) : defaultScheduleValue()
+  })
   const [now, setNow] = useState(() => Date.now())
+  // Only accounts of this profile are listed ('' = every profile).
+  const [profileFilter, setProfileFilter] = useState('')
+  const [queue, setQueue] = useState<QueueState | null>(null)
+  // The draft this dialog edits: set when opened from one or saved as one.
+  const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null)
+  const [draftSave, setDraftSave] = useState<{ status: 'saving' } | { status: 'saved'; at: number } | { status: 'error'; message: string } | null>(null)
+  // Where a draft goes when it is finished: the last way of sending chosen.
+  const lastSendMode = useRef<Exclude<SendMode, 'draft'>>(draft?.timing.mode ?? 'now')
+  if (mode !== 'draft') lastSendMode.current = mode
 
   const dialogRef = useRef<HTMLDivElement>(null)
   const phaseRef = useRef(phase)
@@ -249,10 +282,12 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
     [accounts, profileNames]
   )
   // An account disconnected while this dialog was open cannot remain selected.
+  // Not before the accounts have loaded: a draft's accounts would be wiped (and autosaved).
   useEffect(() => {
+    if (!accountsLoaded || postable.length === 0) return
     const availableIds = new Set(postable.map((account) => account.id))
     setSelected((current) => current.every((id) => availableIds.has(id)) ? current : current.filter((id) => availableIds.has(id)))
-  }, [postable])
+  }, [accountsLoaded, postable])
   const selectedAccounts = postable.filter((a) => selected.includes(a.id) && isPostableAccount(a))
   const unavailableSelected = selected.filter((id) => !selectedAccounts.some((account) => account.id === id))
   const platforms = [...new Set(selectedAccounts.map((a) => a.platform as ZernioPlatform))]
@@ -333,6 +368,29 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
   const scheduleProblem = mode === 'schedule' ? scheduleError(scheduledAt, now) : null
   const bounds = scheduleWindow(now)
 
+  // A queue belongs to one profile: the selected accounts' profile, else the one shown.
+  const selectedProfiles = [...new Set(selectedAccounts.map((a) => a.profileId).filter((id): id is string => Boolean(id)))]
+  const queueProfileId = selectedProfiles.length === 1 ? selectedProfiles[0] : selectedProfiles.length === 0 && profileFilter ? profileFilter : null
+  useEffect(() => {
+    if (mode !== 'queue' || !queueProfileId) {
+      setQueue(null)
+      return
+    }
+    let cancelled = false
+    setQueue({ status: 'loading' })
+    getApi().zernio.posts.queueSlot(queueProfileId)
+      .then((slot) => { if (!cancelled) setQueue({ status: 'ready', slot }) })
+      .catch((err) => { if (!cancelled) setQueue({ status: 'error', message: errorMessage(err, 'Could not read your Zernio queue.') }) })
+    return () => { cancelled = true }
+  // `index`: the next clip in a batch can't take the slot the last one just filled.
+  }, [mode, queueProfileId, index])
+  const queueProblem = mode !== 'queue' ? null
+    : selectedProfiles.length > 1 ? 'Add to queue works with the accounts of one profile. Choose accounts from the same profile, or pick a time.'
+    : !queueProfileId ? null
+    : !queue || queue.status === 'loading' ? 'Checking your queue…'
+    : queue.status === 'error' ? queue.message
+    : queueSlotError(queue.slot.nextSlot ? Date.parse(queue.slot.nextSlot) : NaN, now)
+
   const captionProblems = platforms.map((p) => ({ platform: p, ...checkCaption(p, caption) }))
   const youtubeProblem = has('youtube')
     ? !youtube.title.trim() ? 'Add a YouTube title.' : [...youtube.title.trim()].length > YOUTUBE_TITLE_MAX ? `YouTube titles can be at most ${YOUTUBE_TITLE_MAX} characters.` : /[<>]/.test(youtube.title) ? 'YouTube titles can’t contain < or >.' : null
@@ -370,10 +428,73 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
     }
   }
   if (scheduleProblem) issues.push(scheduleProblem)
-  const ready = issues.length === 0 && phase === 'editing'
+  if (queueProblem) issues.push(queueProblem)
+  // A draft can be saved half-done: nothing is checked until it is posted.
+  const ready = phase === 'editing' && (mode === 'draft' ? draftSave?.status !== 'saving' : issues.length === 0)
+
+  const draftInput = (): PostDraftInput => ({
+    id: draftId,
+    clipPath: clip.path,
+    clipTitle: clip.title,
+    durationMs: clip.durationMs || null,
+    caption,
+    accountIds: selected,
+    useThumbnail: useCover,
+    youtube: { title: youtube.title, visibility: youtube.visibility, madeForKids: youtube.madeForKids, categoryId: youtube.categoryId ?? null, tags: youtubeTags },
+    shareToFeed,
+    facebookFormat,
+    tiktok: { ...tiktok, consent: false },
+    timing: { mode: mode === 'draft' ? lastSendMode.current : mode, scheduledFor: Number.isFinite(new Date(scheduleValue).getTime()) ? new Date(scheduleValue).toISOString() : null }
+  })
+
+  const saveDraft = async (): Promise<boolean> => {
+    setDraftSave({ status: 'saving' })
+    const input = draftInput()
+    try {
+      const saved = await getApi().zernio.drafts.save(input)
+      lastSavedKey.current = JSON.stringify({ ...input, id: saved.id })
+      setDraftId(saved.id)
+      setDraftSave({ status: 'saved', at: Date.now() })
+      onDraftsChanged?.()
+      return true
+    } catch (err) {
+      setDraftSave({ status: 'error', message: errorMessage(err, 'Could not save the draft.') })
+      return false
+    }
+  }
+
+  // Once this is a draft, every change is kept, so closing the dialog loses nothing.
+  const draftKey = draftId && phase === 'editing' && accountsLoaded ? JSON.stringify(draftInput()) : null
+  const lastSavedKey = useRef<string | null>(draftKey)
+  useEffect(() => {
+    if (!draftKey || draftKey === lastSavedKey.current) return
+    // The first key (once accounts have loaded) is the draft as opened, not a change.
+    if (lastSavedKey.current === null) {
+      lastSavedKey.current = draftKey
+      return
+    }
+    const timer = setTimeout(() => {
+      lastSavedKey.current = draftKey
+      void saveDraft()
+    }, DRAFT_AUTOSAVE_MS)
+    return () => clearTimeout(timer)
+    // saveDraft reads the same state draftKey was made from, so draftKey is the only dependency.
+  }, [draftKey])
+  // Closing before the autosave delay ends still keeps the last change.
+  const flushDraft = useRef<() => void>(() => {})
+  flushDraft.current = (): void => {
+    if (draftKey && lastSavedKey.current !== null && draftKey !== lastSavedKey.current) {
+      lastSavedKey.current = draftKey
+      void saveDraft()
+    }
+  }
 
   const submit = async (): Promise<void> => {
     if (!ready) return
+    if (mode === 'draft') {
+      await saveDraft()
+      return
+    }
     setPhase('sending')
     setError(null)
     setProgress(null)
@@ -386,7 +507,9 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
         caption,
         thumbnailPath: useCover && cover?.path ? cover.path : null,
         targets: selectedAccounts.map((a) => ({ platform: a.platform as ZernioPlatform, accountId: a.id })),
-        timing: mode === 'now' ? { mode: 'now' } : { mode: 'schedule', scheduledFor: new Date(scheduledAt).toISOString(), timezone: localTimeZone() },
+        timing: mode === 'now' ? { mode: 'now' }
+          : mode === 'queue' && queueProfileId ? { mode: 'queue', profileId: queueProfileId }
+          : { mode: 'schedule', scheduledFor: new Date(scheduledAt).toISOString(), timezone: localTimeZone() },
         options: {
           ...(has('tiktok') ? { tiktok } : {}),
           ...(has('youtube') ? { youtube: { ...youtube, title: youtube.title.trim(), ...(youtubeTagsFrom(parseTagList(youtubeTags)).length ? { tags: youtubeTagsFrom(parseTagList(youtubeTags)) } : {}) } } : {}),
@@ -395,6 +518,13 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
         }
       })
       if (outcome.post) usePostsStore.getState().upsert(outcome.post)
+      // The draft became a post; a failed one stays a draft to fix and try again.
+      if (draftId && outcome.post && outcome.outcome !== 'failed' && outcome.outcome !== 'duplicate') {
+        const finished = draftId
+        setDraftId(null)
+        setDraftSave(null)
+        void getApi().zernio.drafts.delete(finished).then(() => onDraftsChanged?.()).catch(() => {})
+      }
       setResult(outcome)
       setPhase('done')
     } catch (err) {
@@ -428,10 +558,13 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
   }
 
   const close = useCallback((): void => {
-    if (phaseRef.current !== 'sending') onClose()
+    if (phaseRef.current === 'sending') return
+    flushDraft.current()
+    onClose()
   }, [onClose])
 
   const goToAccounts = (): void => {
+    flushDraft.current()
     onClose()
     onNavigate?.('accounts')
   }
@@ -518,8 +651,18 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
           aside={selectedAccounts.length > 0 && <span className="rounded-full bg-accent/[0.14] px-2 py-0.5 text-2xs font-medium text-accent-hover">{selectedAccounts.length} selected</span>}
         >
           {accountsError && <p className="mb-2.5 text-xs text-warning">{accountsError.message} These are the accounts Zernio reported last.</p>}
+          {profiles.length > 1 && (
+            <Select
+              size="sm"
+              aria-label="Profile"
+              className="mb-2.5 w-[220px]"
+              value={profileFilter}
+              onChange={setProfileFilter}
+              options={[{ value: '', label: 'All profiles' }, ...profiles.map((p) => ({ value: p.id, label: p.name }))]}
+            />
+          )}
           <AccountPicker
-            accounts={postable}
+            accounts={profileFilter ? postable.filter((a) => a.profileId === profileFilter || selected.includes(a.id)) : postable}
             selected={selected}
             onChange={setSelected}
             profileName={(account) => (profiles.length > 1 && account.profileId ? profileNames.get(account.profileId) ?? null : null)}
@@ -604,6 +747,12 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
           min={toLocalInput(bounds.min)}
           max={toLocalInput(bounds.max)}
           problem={scheduleProblem}
+          draftDisabled={clips.length > 1 ? 'A draft holds one clip. Post several clips at once, or open one clip to save it as a draft.' : undefined}
+          queue={queue}
+          queueProblem={queueProblem}
+          queueNeedsProfile={mode === 'queue' && !queueProfileId && selectedProfiles.length === 0}
+          onOpenZernio={() => void getApi().shell.openPath(ZERNIO_LINKS.dashboard).catch(() => {})}
+          draftId={draftId}
         />
       </div>
     )
@@ -653,7 +802,7 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
                 ) : (
                   <p className="flex items-center gap-2 text-sm text-ink-muted">
                     <Loader2 className="h-4 w-4 animate-spin text-accent-hover" />
-                    {mode === 'now' ? `Publishing to ${selectedAccounts.length} account${selectedAccounts.length === 1 ? '' : 's'}…` : 'Scheduling…'}
+                    {mode === 'now' ? `Publishing to ${selectedAccounts.length} account${selectedAccounts.length === 1 ? '' : 's'}…` : mode === 'queue' ? 'Adding to your queue…' : 'Scheduling…'}
                   </p>
                 )}
               </div>
@@ -665,17 +814,27 @@ export function PostDialog({ clips, onClose, onNavigate }: PostDialogProps): Rea
             </div>
           ) : (
             <div className="flex items-center gap-3">
-              <p className={cn('min-w-0 flex-1 truncate text-xs', issues[0] ? 'text-ink-muted' : 'text-ink-subtle')} title={issues[0]}>
-                {issues[0] ?? (mode === 'now' ? 'Publishes right away.' : `Publishes ${formatScheduled(new Date(scheduledAt).toISOString())}.`)}
+              <p
+                className={cn('min-w-0 flex-1 truncate text-xs', draftSave?.status === 'error' ? 'text-danger' : issues[0] && mode !== 'draft' ? 'text-ink-muted' : 'text-ink-subtle')}
+                title={draftSave?.status === 'error' ? draftSave.message : issues[0]}
+                role={draftSave?.status === 'error' ? 'alert' : undefined}
+              >
+                {draftSave?.status === 'error' ? draftSave.message
+                  : mode === 'draft' ? (draftSave?.status === 'saving' ? 'Saving…' : draftSave?.status === 'saved' ? 'Draft saved.' : 'Not uploaded until you post it.')
+                  : issues[0] ?? (mode === 'now' ? 'Publishes right away.'
+                    : mode === 'queue' ? (queue?.status === 'ready' && queue.slot.nextSlot ? `Next free queue time: ${formatScheduled(queue.slot.nextSlot, queue.slot.timezone)}.` : 'Goes into the next free queue time.')
+                    : `Publishes ${formatScheduled(new Date(scheduledAt).toISOString())}.`)}
               </p>
-              <Button variant="ghost" onClick={close}>Cancel</Button>
+              {mode !== 'draft' && draftId && draftSave?.status === 'saved' && <span className="shrink-0 text-2xs text-ink-faint">Draft saved</span>}
+              <Button variant="ghost" onClick={close}>{mode === 'draft' && draftId ? 'Close' : 'Cancel'}</Button>
               <Button
                 variant="primary"
                 disabled={!ready}
+                loading={mode === 'draft' && draftSave?.status === 'saving'}
                 onClick={() => void submit()}
-                icon={mode === 'now' ? <Send className="h-3.5 w-3.5" /> : <CalendarClock className="h-3.5 w-3.5" />}
+                icon={mode === 'now' ? <Send className="h-3.5 w-3.5" /> : mode === 'queue' ? <ListOrdered className="h-3.5 w-3.5" /> : mode === 'draft' ? <FileText className="h-3.5 w-3.5" /> : <CalendarClock className="h-3.5 w-3.5" />}
               >
-                {mode === 'now' ? 'Post now' : 'Schedule'}
+                {mode === 'now' ? 'Post now' : mode === 'queue' ? 'Add to queue' : mode === 'draft' ? (draftId ? 'Save draft' : 'Save as draft') : 'Schedule'}
               </Button>
             </div>
           )}
@@ -1077,7 +1236,7 @@ function AccountRow({ account, grouped, profile, reason, selected, onToggle }: {
         className={cn(
           'flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-[background,box-shadow] duration-150',
           selected
-            ? 'bg-accent text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_0_0_1px_rgb(var(--accent)/0.7)]'
+            ? 'bg-accent text-accent-ink'
             : 'text-transparent shadow-[inset_0_0_0_1.5px_rgb(255_255_255/0.22)]'
         )}
       >
@@ -1275,20 +1434,68 @@ function FacebookFields({ media, value, onChange }: { media: ClipMediaInfo; valu
   )
 }
 
-function WhenField({ mode, onModeChange, value, onValueChange, min, max, problem }: {
-  mode: 'now' | 'schedule'
-  onModeChange: (mode: 'now' | 'schedule') => void
+function WhenField({ mode, onModeChange, value, onValueChange, min, max, problem, draftDisabled, queue, queueProblem, queueNeedsProfile, onOpenZernio, draftId }: {
+  mode: SendMode
+  onModeChange: (mode: SendMode) => void
   value: string
   onValueChange: (value: string) => void
   min: string
   max: string
   problem: string | null
+  /** Why a draft can't be saved here; hides nothing, disables the option. */
+  draftDisabled?: string
+  queue: QueueState | null
+  queueProblem: string | null
+  /** Queue mode with no account chosen yet, so no profile to read the queue from. */
+  queueNeedsProfile: boolean
+  onOpenZernio: () => void
+  draftId: string | null
 }): React.JSX.Element {
   const id = useId()
   const at = new Date(value).getTime()
+  const slot = queue?.status === 'ready' ? queue.slot : null
   return (
     <Section title="When">
-      <Segmented<'now' | 'schedule'> label="When to post" value={mode} onChange={onModeChange} options={[{ value: 'now', label: 'Post now' }, { value: 'schedule', label: 'Schedule' }]} />
+      <Segmented<SendMode>
+        label="When to post"
+        value={mode}
+        onChange={onModeChange}
+        options={[
+          { value: 'now', label: 'Now' },
+          { value: 'schedule', label: 'Schedule' },
+          { value: 'queue', label: 'Queue' },
+          { value: 'draft', label: 'Draft', disabled: draftDisabled }
+        ]}
+      />
+      {mode === 'queue' && (
+        <div className="mt-3.5 animate-fade-in text-xs leading-relaxed">
+          {queueNeedsProfile ? (
+            <p className="text-ink-subtle">Choose accounts to see the next free time in that profile’s queue.</p>
+          ) : queue?.status === 'loading' ? (
+            <p className="flex items-center gap-2 text-ink-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Checking your queue…</p>
+          ) : slot?.nextSlot ? (
+            <p className="flex items-center gap-2 text-ink">
+              <ListOrdered className="h-3.5 w-3.5 text-accent-hover" />
+              Next free time: {formatScheduled(slot.nextSlot, slot.timezone)}{slot.queueName ? ` · ${slot.queueName}` : ''}
+            </p>
+          ) : null}
+          {queueProblem && queue?.status !== 'loading' && <p role="alert" className="mt-1.5 text-danger">{queueProblem}</p>}
+          <p className="mt-1.5 text-ink-subtle">
+            Zernio puts the post in the profile’s next free queue time. You set those times in Zernio.{' '}
+            <button type="button" onClick={onOpenZernio} className="inline-flex items-center gap-0.5 text-accent-hover hover:underline">
+              Open Zernio<ArrowUpRight className="h-3 w-3" />
+            </button>
+          </p>
+        </div>
+      )}
+      {mode === 'draft' && (
+        <p className="mt-3.5 flex gap-2 text-xs leading-relaxed text-ink-subtle animate-fade-in">
+          <FileText className="mt-px h-3.5 w-3.5 shrink-0" />
+          {draftId
+            ? 'Saved on this computer. Changes are kept as you type. Open it from the Posts page to finish and post it.'
+            : 'Keeps the post on this computer, so you can finish it later from the Posts page. Nothing is uploaded until you post it.'}
+        </p>
+      )}
       {mode === 'schedule' && (
         <div className="mt-3.5 animate-fade-in">
           <div className="flex flex-wrap items-center gap-3">
@@ -1311,7 +1518,7 @@ function WhenField({ mode, onModeChange, value, onValueChange, min, max, problem
           {problem ? (
             <p role="alert" className="mt-2 text-xs text-danger">{problem}</p>
           ) : (
-            <p className="mt-2 text-xs leading-relaxed text-ink-subtle">Zernio publishes it at this time, even when VlasiichukClip is closed. Up to 6½ days ahead, because Zernio keeps uploads for 7 days.</p>
+            <p className="mt-2 text-xs leading-relaxed text-ink-subtle">Zernio publishes it at this time, even when vClip is closed. Up to 6½ days ahead, because Zernio keeps uploads for 7 days.</p>
           )}
         </div>
       )}

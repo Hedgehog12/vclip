@@ -9,6 +9,7 @@ import { Checkbox } from './ui/Checkbox'
 import { ClipEditDialog } from './ClipEditDialog'
 import { Badge } from './ui/Badge'
 import { Skeleton } from './ui/Skeleton'
+import { PostedBadge, type ClipPostState } from './PostedBadge'
 
 // How the engine framed a vertical clip (its dominant layout).
 const LAYOUT_LABELS: Record<string, string> = {
@@ -35,6 +36,8 @@ interface ClipCardProps {
   onAddToAutomation?: () => void
   /** The title or description was edited in the clip's edit dialog. */
   onEdited?: (clip: ClipArtifact) => void
+  /** Where this clip is already posted, from the post history. */
+  posted?: ClipPostState
 }
 
 export function ClipCard({
@@ -47,7 +50,8 @@ export function ClipCard({
   onAspect,
   onPost,
   onAddToAutomation,
-  onEdited
+  onEdited,
+  posted
 }: ClipCardProps): React.JSX.Element {
   const filePath = clipFilePath(clip.s3_url)
   const [thumb, setThumb] = useState<string | null | undefined>(undefined)
@@ -200,7 +204,7 @@ export function ClipCard({
         <div className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1">
           {topPick && (
             <span
-              className="pointer-events-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35)]"
+              className="pointer-events-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-accent-ink"
               title="Top pick: the best-scoring clip of this run"
               aria-label="Top pick"
             >
@@ -211,7 +215,7 @@ export function ClipCard({
             className="glass-chip pointer-events-auto inline-flex h-5 items-center gap-1 rounded-full px-1.5 font-mono text-2xs font-medium tabular text-white"
             title="Virality score"
           >
-            <TrendingUp className="h-3 w-3 text-brand-gold" />
+            <TrendingUp className="h-3 w-3 text-brand-star" />
             {score}
           </span>
         </div>
@@ -219,6 +223,7 @@ export function ClipCard({
           <span className="glass-chip rounded-full px-1.5 py-px font-mono text-2xs tabular text-white/95">
             {formatTimecode(clip.duration_ms)}
           </span>
+          {posted && <PostedBadge state={posted} className="pointer-events-auto backdrop-blur-sm" />}
           {ai?.status === 'pending' && (
             <span className="glass-chip inline-flex items-center gap-1 rounded-full px-1.5 py-px text-2xs text-white/95">
               <Loader2 className="h-3 w-3 animate-spin" /> Thumbnail
@@ -231,7 +236,7 @@ export function ClipCard({
           )}
           {ai?.status === 'ready' && !ai.error && (
             <span className="glass-chip inline-flex items-center gap-1 rounded-full px-1.5 py-px text-2xs text-white/95" title={ai.model === 'custom' ? 'Your own thumbnail' : `AI thumbnail${ai.model ? ` · ${ai.model}` : ''}`}>
-              {ai.model === 'custom' ? 'Custom' : <><Sparkles className="h-3 w-3 text-brand-gold" /> AI</>}
+              {ai.model === 'custom' ? 'Custom' : <><Sparkles className="h-3 w-3 text-brand-star" /> AI</>}
             </span>
           )}
           {ai?.status === 'failed' && (
@@ -240,8 +245,9 @@ export function ClipCard({
             </span>
           )}
         </span>
+        {/* Above the duration and posted chips, so hovering never hides them. */}
         {!selecting && (
-          <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1">
+          <div className="absolute bottom-9 right-2 z-10 flex items-center gap-1">
             <div className="flex items-center gap-1 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
               {onPost && <MediaAction label={`Post “${title}”`} title="Post to social accounts" icon={<Send />} onClick={() => onPost()} />}
               {onAddToAutomation && <MediaAction label={`Add “${title}” to automation`} title="Add to automation" icon={<ListPlus />} onClick={onAddToAutomation} />}

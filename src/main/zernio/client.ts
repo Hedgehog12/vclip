@@ -7,7 +7,7 @@ import { logger } from '../logger'
 
 const BASE_URL = 'https://zernio.com/api/v1'
 const REQUEST_TIMEOUT_MS = 30_000
-/** Longest wait VlasiichukClip honours from Retry-After or X-RateLimit-Reset. */
+/** Longest wait vClip honours from Retry-After or X-RateLimit-Reset. */
 const MAX_RATE_LIMIT_WAIT_S = 3600
 
 type JsonRecord = Record<string, unknown>
@@ -179,16 +179,16 @@ function errorFor(status: number, body: JsonRecord, headers: Headers | string | 
   if (status === 402) return new ZernioApiError(paymentMessage(str(body.reason)), status, code ?? 'PAYMENT_REQUIRED')
   if (status === 403) {
     if (/this api key does not have access to this profile/i.test(String(body.error ?? body.message ?? '')) || code === 'profile_access_denied') {
-      return new ZernioApiError("This Zernio API key cannot access this profile. In Zernio's API keys, use a key with access to this profile, or Full access for new profiles, and Read & Write permission. Update the key in VlasiichukClip Settings.", status, 'profile_access_denied')
+      return new ZernioApiError("This Zernio API key cannot access this profile. In Zernio's API keys, use a key with access to this profile, or Full access for new profiles, and Read & Write permission. Update the key in vClip Settings.", status, 'profile_access_denied')
     }
     if (code === 'PLATFORM_BETA_RESTRICTED') return new ZernioApiError("This platform is in a closed beta on Zernio and isn't enabled for your workspace yet.", status, code)
     if (code === 'PLATFORM_DISABLED') return new ZernioApiError('Zernio has temporarily disabled this platform. Try again later.', status, code)
     if (code === 'PROFILE_OVER_LIMIT') return new ZernioApiError("This Zernio profile is over your plan's limit. Pick another profile or upgrade in Zernio.", status, code)
     if (code === 'ACCOUNT_DISCONNECTED') return new ZernioApiError('That account needs to sign in again. Reconnect it on the Accounts page.', status, code)
-    if (code === 'insufficient_permissions') return new ZernioApiError("This Zernio API key isn't allowed to do that. Check its profile access, Read & Write permission, and enabled resources in Zernio, then update the key in VlasiichukClip Settings.", status, code)
+    if (code === 'insufficient_permissions') return new ZernioApiError("This Zernio API key isn't allowed to do that. Check its profile access, Read & Write permission, and enabled resources in Zernio, then update the key in vClip Settings.", status, code)
   }
   if (status === 400 && code === 'INVALID_REDIRECT_URL') {
-    return new ZernioApiError("Zernio didn't accept VlasiichukClip's local sign-in return address. Please report this issue.", status, code)
+    return new ZernioApiError("Zernio didn't accept vClip's local sign-in return address. Please report this issue.", status, code)
   }
   if (status === 409 && code === 'ads_connection_required') {
     return new ZernioApiError('That account needs to sign in again. Reconnect it on the Accounts page.', status, code)
@@ -580,6 +580,26 @@ export class ZernioClient {
     const posts = (Array.isArray(body.posts) ? body.posts : extractCollection(body)).map(asRecord)
     const number = (value: unknown, fallback: number): number => (Number.isInteger(value) && (value as number) >= 0 ? (value as number) : fallback)
     return { posts, page: number(pagination.page, 1), pages: number(pagination.pages, 1), total: number(pagination.total, posts.length) }
+  }
+
+  /**
+   * GET /v1/queue/next-slot: the profile's next free queue time, for preview
+   * only. `nextSlot` is null when the profile has no active queue or no free slot.
+   */
+  async getNextQueueSlot(profileId: string): Promise<{ nextSlot: string | null; timezone: string | null; queueName: string | null }> {
+    try {
+      const { body } = await this.postingRequest('GET', `/queue/next-slot?${new URLSearchParams({ profileId })}`)
+      const nextSlot = str(body.nextSlot)
+      return {
+        nextSlot: nextSlot && Number.isFinite(Date.parse(nextSlot)) ? new Date(nextSlot).toISOString() : null,
+        timezone: str(body.timezone)?.slice(0, 64) ?? null,
+        queueName: sanitizeProviderText(body.queueName, 80) ?? null
+      }
+    } catch (error) {
+      // 404: no queue or no free slot; 400: the queue is switched off.
+      if (error instanceof ZernioApiError && (error.status === 404 || error.status === 400)) return { nextSlot: null, timezone: null, queueName: null }
+      throw error
+    }
   }
 
   async getPost(postId: string): Promise<JsonRecord> {

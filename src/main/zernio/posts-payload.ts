@@ -52,6 +52,7 @@ const MAX_TARGETS = 20
 function parseTiming(value: unknown): PostTiming {
   const timing = asRecord(value)
   if (timing.mode === 'now') return { mode: 'now' }
+  if (timing.mode === 'queue') return isZernioId(timing.profileId) ? { mode: 'queue', profileId: timing.profileId } : invalid('queue profile')
   if (timing.mode !== 'schedule') invalid('timing')
   const scheduledFor = str(timing.scheduledFor)
   if (!scheduledFor || scheduledFor.length > 40 || !Number.isFinite(Date.parse(scheduledFor))) invalid('scheduled time')
@@ -284,6 +285,9 @@ export function buildCreatePostBody(request: PostClipRequest, context: PostBodyC
   if (options.youtube?.tags?.length) body.tags = options.youtube.tags
   if (request.timing.mode === 'now') {
     body.publishNow = true
+  } else if (request.timing.mode === 'queue') {
+    // Zernio picks the slot itself; copying next-slot into scheduledFor would bypass its queue locking.
+    body.queuedFromProfile = request.timing.profileId
   } else {
     body.scheduledFor = request.timing.scheduledFor
     body.timezone = request.timing.timezone
@@ -312,7 +316,7 @@ const POST_URL_HOSTS: Record<ZernioPlatform, readonly string[]> = {
   threads: ['threads.net', 'threads.com']
 }
 
-/** True for an https link on the platform's own site; the only links VlasiichukClip opens. */
+/** True for an https link on the platform's own site; the only links vClip opens. */
 export function isPostUrl(value: unknown, platform: string): value is string {
   if (typeof value !== 'string' || value.length > 2048 || !isZernioPlatform(platform)) return false
   try {
@@ -480,7 +484,7 @@ function listedTarget(entry: JsonRecord): PostRecordTarget | null {
 }
 
 /**
- * One post from GET /v1/posts as a list row. A post VlasiichukClip made keeps
+ * One post from GET /v1/posts as a list row. A post vClip made keeps
  * its local record (clip file, what was sent) and takes Zernio's current state.
  */
 export function listedPostItem(post: JsonRecord, local: PostRecord | null): PostListItem | null {

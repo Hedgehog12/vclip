@@ -10,6 +10,7 @@ import { isValidProfileName, isZernioPlatform, ZERNIO_PLATFORMS, ZERNIO_PROFILE_
 import { ApiKeyInput } from '../components/ApiKeyInput'
 import { PLATFORM_INFO, PlatformIcon, platformName } from '../components/PlatformIcon'
 import { PageHeader } from '../components/ui/PageHeader'
+import { SettingsTabs } from '../components/SettingsTabs'
 import { Page as PageColumn } from '../components/ui/Page'
 import { Panel } from '../components/ui/Panel'
 import { Button } from '../components/ui/Button'
@@ -20,7 +21,8 @@ import { Select } from '../components/ui/Select'
 import { Skeleton } from '../components/ui/Skeleton'
 import type { Page } from '../components/Sidebar'
 
-const TITLE = 'Accounts'
+/** Accounts is a tab of Settings, so the page keeps that title. */
+const TITLE = 'Settings'
 /** Opening the page re-reads Zernio only when the shown data is older than this. */
 const REFRESH_ON_OPEN_AFTER_MS = 30_000
 /** Account tiles: two columns at the page's full width, one in a narrow window. */
@@ -33,24 +35,25 @@ function openLink(url: string): void {
 export function AccountsPage({ onNavigate }: { onNavigate: (page: Page) => void }): React.JSX.Element {
   const configured = useSettingsStore((s) => s.zernioConfigured)
   return (
-    <PageColumn width="narrow">
-      {configured ? <ConnectedAccounts onNavigate={onNavigate} /> : <ZernioSetup />}
+    // Same column as Settings, so the General / Accounts tabs stay in place.
+    <PageColumn width="default" className="max-w-[1080px]">
+      {configured ? <ConnectedAccounts onNavigate={onNavigate} /> : <ZernioSetup onNavigate={onNavigate} />}
     </PageColumn>
   )
 }
 
-function ZernioSetup(): React.JSX.Element {
+function ZernioSetup({ onNavigate }: { onNavigate: (page: Page) => void }): React.JSX.Element {
   const keys = useApiKeyDrafts()
 
   return (
     <>
-      <PageHeader title={TITLE} />
+      <PageHeader title={TITLE} below={<SettingsTabs current="accounts" onNavigate={onNavigate} />} />
       <Panel padded={false} className="mt-4 overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold text-ink">Connect with Zernio</h2>
             <p className="mt-0.5 text-xs text-ink-muted">
-              Post and schedule clips to {ZERNIO_PLATFORMS.length} platforms. VlasiichukClip only holds your Zernio key; platform sign-in happens in your browser.
+              Post and schedule clips to {ZERNIO_PLATFORMS.length} platforms. vClip only holds your Zernio key; platform sign-in happens in your browser.
             </p>
           </div>
           <div aria-hidden className="hidden shrink-0 -space-x-1 sm:flex">
@@ -78,7 +81,7 @@ function ZernioSetup(): React.JSX.Element {
               </Button>
             }
           >
-            <StepText title="Create an API key" hint="Full access with Read & Write permission, so VlasiichukClip can create and connect profiles. Copy it right away: Zernio only shows it once." />
+            <StepText title="Create an API key" hint="Full access with Read & Write permission, so vClip can create and connect profiles. Copy it right away: Zernio only shows it once." />
           </SetupStep>
           <SetupStep step={3}>
             <ApiKeyInput
@@ -232,6 +235,7 @@ function ConnectedAccounts({ onNavigate }: { onNavigate: (page: Page) => void })
     <>
       <PageHeader
         title={TITLE}
+        below={<SettingsTabs current="accounts" onNavigate={onNavigate} />}
         className="items-center"
         actions={
           <>
@@ -587,7 +591,7 @@ interface AccountTileProps {
   connecting: boolean
   busy: boolean
   disconnecting: boolean
-  /** Absent for platforms VlasiichukClip can't connect (accounts added in Zernio itself). */
+  /** Absent for platforms vClip can't connect (accounts added in Zernio itself). */
   onConnect?: () => void
   /** Asks Zernio for a fresh sign-in on the connected account. */
   onReconnect?: () => void
