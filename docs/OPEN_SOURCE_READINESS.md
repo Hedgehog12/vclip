@@ -1,16 +1,16 @@
 # Open-source readiness
 
-VlasiichukClip keeps its desktop clipping engine, model, fonts, and locked Python dependencies in `engine/`. A user needs only this source repository, the documented runtimes, and their own provider key. The former separate engine repository is not part of the development or release path.
+vClip keeps its desktop clipping engine, model, fonts, and locked Python dependencies in `engine/`. A user needs only this source repository, the documented runtimes, and their own provider key. The former separate engine repository is not part of the development or release path.
 
-From the VlasiichukClip checkout, run `bash scripts/export-public-draft.sh /path/to/new-draft-directory` with a new path outside this checkout. The script checks an exact [file manifest](../scripts/public-draft-manifest.txt), rejects unreviewed files and symlinks in the selected source directories, and creates one `vlasiichukclip/` draft without the former development history, local configuration, or build output. Add new source files to the manifest only after reviewing them. Review and secret-scan the **exact exported bytes** before any public push; the manifest checks file paths, not their contents.
+From the vClip checkout, run `bash scripts/export-public-draft.sh /path/to/new-draft-directory` with a new path outside this checkout. The script checks an exact [file manifest](../scripts/public-draft-manifest.txt), rejects unreviewed files and symlinks in the selected source directories, and creates one `vlasiichukclip/` draft without the former development history, local configuration, or build output. Add new source files to the manifest only after reviewing them. Review and secret-scan the **exact exported bytes** before any public push; the manifest checks file paths, not their contents.
 
 ## Publication gates
 
 | Order | Gate | Completion evidence |
 | --- | --- | --- |
 | 1 | Confirm ownership and redistribution rights for source, branding, fonts, model, and bundled runtimes. | Maintainer sign-off and completed `THIRD_PARTY_NOTICES.md`. |
-| 2 | Validate the exact exported draft before any public push. | VlasiichukClip typecheck, lint, tests, build, Electron tests, in-repo engine pytest, Python dependency audit, npm audit, and a redacted secret scan pass from the draft. |
-| 3 | Publish the reviewed VlasiichukClip draft. Keep older development history private and enable repository secret scanning and push protection where available. | The first public commit contains only the scanned draft and CI passes without another source repository. |
+| 2 | Validate the exact exported draft before any public push. | vClip typecheck, lint, tests, build, Electron tests, in-repo engine pytest, Python dependency audit, npm audit, and a redacted secret scan pass from the draft. |
+| 3 | Publish the reviewed vClip draft. Keep older development history private and enable repository secret scanning and push protection where available. | The first public commit contains only the scanned draft and CI passes without another source repository. |
 | 4 | Build, sign, and notarize both macOS architectures in release CI. | Dependency inventories, archive checksums, updater metadata, signatures, and packaged engine checks pass. |
 | 5 | Test installation and update on clean Apple silicon and Intel machines with a local file and controlled provider run. | Create, Library, export, cancellation, and update behavior are recorded for each architecture. |
 

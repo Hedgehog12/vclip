@@ -1,6 +1,6 @@
 import { app, BrowserWindow, nativeTheme, shell, protocol } from 'electron'
 import { extname, join } from 'path'
-import { mkdirSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { Readable } from 'stream'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { createMenu } from './menu'
@@ -25,6 +25,13 @@ process.on('unhandledRejection', (reason) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+
+// Before the rename to vClip the app kept its data in a "VlasiichukClip" folder.
+// Keep using it when it exists, so existing settings, keys and posts carry over.
+if (!process.env.VLASIICHUKCLIP_USER_DATA_DIR) {
+  const legacyUserData = join(app.getPath('appData'), 'VlasiichukClip')
+  if (existsSync(legacyUserData)) app.setPath('userData', legacyUserData)
+}
 
 // Development-only: isolated settings (and single-instance lock) for
 // end-to-end tests, so a test run never touches the developer's real app.

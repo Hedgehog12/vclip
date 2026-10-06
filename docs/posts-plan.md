@@ -1,4 +1,4 @@
-# Posts page rebuild: Zernio-style planner inside VlasiichukClip
+# Posts page rebuild: Zernio-style planner inside vClip
 
 Goal: plan, draft, schedule, queue, edit and review posts without leaving the app.
 Zernio stays the publishing backend; the app becomes the front end.

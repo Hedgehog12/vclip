@@ -1014,7 +1014,7 @@ class LayoutAnalyzer:
                 timeout=httpx.Timeout(120.0, connect=20.0),
                 headers={
                     "Authorization": f"Bearer {self.settings.openrouter_api_key}",
-                    "HTTP-Referer": "https://github.com/Hedgehog12/vlasiichukclip",
+                    "HTTP-Referer": "https://github.com/Hedgehog12/vclip",
                     "X-Title": "VlasiichukClip AI Clipping Agent",
                 },
             )

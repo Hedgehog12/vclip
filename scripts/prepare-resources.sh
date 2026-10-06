@@ -22,7 +22,7 @@ if [[ ( "$target_arch" == "arm64" && "$host_arch" != "arm64" ) ||
 fi
 if [[ ! -f engine/clip_engine/bridge_contract.py || ! -f engine/requirements.lock ||
       ! -f engine/LICENSE || ! -d engine/assets ]]; then
-  echo "The in-repo VlasiichukClip clipping engine is incomplete" >&2
+  echo "The in-repo vClip clipping engine is incomplete" >&2
   exit 1
 fi
 

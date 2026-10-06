@@ -237,7 +237,7 @@ test('external URLs reject executable schemes and embedded credentials', () => {
   for (const url of ['file:///tmp/run', 'javascript:alert(1)', 'https://user:pass@example.com', null]) assert.equal(security.isWebUrl(url), false)
   assert.equal(security.isWebUrl('https://example.com/video'), true)
   assert.equal(security.isTrustedExternalUrl('https://example.com/video'), false)
-  assert.equal(security.isTrustedExternalUrl('https://github.com/Hedgehog12/vlasiichukclip'), true)
+  assert.equal(security.isTrustedExternalUrl('https://github.com/Hedgehog12/vclip'), true)
 })
 
 test('job validation rejects malformed options and invalid trim intervals', () => {

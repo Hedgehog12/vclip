@@ -3,7 +3,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, renameSync, statSync 
 import { join } from 'path'
 
 // Simple structured JSON-lines logger that writes to app.getPath('logs').
-// On macOS that is ~/Library/Logs/VlasiichukClip/vlasiichukclip.log.
+// On macOS that is ~/Library/Logs/vClip/vlasiichukclip.log.
 // On Windows that is %APPDATA%\VlasiichukClip\logs\vlasiichukclip.log.
 //
 // Why a custom logger instead of electron-log: zero new dependencies, and we

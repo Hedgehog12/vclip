@@ -6,7 +6,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-# VlasiichukClip engine burns captions with the ASS filter. A build without libass appears
+# vClip engine burns captions with the ASS filter. A build without libass appears
 # healthy until every captioned render fails, including the fallback render.
 if ! command -v pkg-config >/dev/null || ! pkg-config --exists libass; then
   echo "Install pkg-config and libass before building FFmpeg" >&2
@@ -48,7 +48,7 @@ FFmpeg $version source: $source_url
 Source SHA-256: $source_hash
 The complete source archive is included as FFMPEG-SOURCE.tar.xz.
 Built with GPL and nonfree components disabled. The exact build configuration
-is available from ffmpeg -version and scripts/build-ffmpeg-mac.sh in VlasiichukClip.
+is available from ffmpeg -version and scripts/build-ffmpeg-mac.sh in vClip.
 EOF
 
 configuration="$("$output_dir/ffmpeg" -version | sed -n '3p')"

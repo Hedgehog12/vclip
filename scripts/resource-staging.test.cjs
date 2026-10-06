@@ -17,7 +17,7 @@ test('resource staging preserves existing tools when the in-repo engine is incom
     fs.writeFileSync(sentinel, 'keep')
     const result = spawnSync('bash', [path.join(scripts, 'prepare-resources.sh'), process.arch === 'arm64' ? 'arm64' : 'x64'], { encoding: 'utf8' })
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /in-repo VlasiichukClip clipping engine is incomplete/)
+    assert.match(result.stderr, /in-repo vClip clipping engine is incomplete/)
     assert.equal(fs.readFileSync(sentinel, 'utf8'), 'keep')
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

@@ -1,18 +1,18 @@
 {
-  "name": "vlasiichukclip",
-  "productName": "VlasiichukClip",
+  "name": "vclip",
+  "productName": "vClip",
   "version": "0.1.17",
   "description": "vClip: open-source AI video clipping by vlasiichuk.pro. Turn long videos into captioned short-form clips, locally, with your own API keys.",
   "main": "./out/main/index.js",
   "author": "Julian Vlasiichuk",
   "license": "MIT",
-  "homepage": "https://github.com/Hedgehog12/vlasiichukclip",
+  "homepage": "https://github.com/Hedgehog12/vclip",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Hedgehog12/vlasiichukclip.git"
+    "url": "https://github.com/Hedgehog12/vclip.git"
   },
   "bugs": {
-    "url": "https://github.com/Hedgehog12/vlasiichukclip/issues"
+    "url": "https://github.com/Hedgehog12/vclip/issues"
   },
   "scripts": {
     "dev": "electron-vite dev",

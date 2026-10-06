@@ -1,6 +1,6 @@
-appId: pro.vlasiichuk.vlasiichukclip
-productName: VlasiichukClip
-artifactName: VlasiichukClip-${version}-${os}-${arch}.${ext}
+appId: pro.vlasiichuk.vclip
+productName: vClip
+artifactName: vClip-${version}-${os}-${arch}.${ext}
 copyright: Copyright © 2026 Julian Vlasiichuk
 
 # Disable production debug/code-injection entry points and validate app.asar.
@@ -109,8 +109,8 @@ nsis:
 linux:
   # Builder otherwise expands x64 as x86_64 for AppImage and amd64 for DEB.
   # Linux currently supports x64 only; keep one stable release naming contract.
-  artifactName: VlasiichukClip-${version}-linux-x64.${ext}
-  executableName: vlasiichukclip
+  artifactName: vClip-${version}-linux-x64.${ext}
+  executableName: vclip
   category: AudioVideo
   icon: build/icon.png
   target:
@@ -137,4 +137,4 @@ deb:
 publish:
   provider: github
   owner: Hedgehog12
-  repo: vlasiichukclip
+  repo: vclip

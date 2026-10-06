@@ -1,6 +1,6 @@
-# Releasing VlasiichukClip
+# Releasing vClip
 
-VlasiichukClip source and downloads live in `Hedgehog12/vlasiichukclip`, maintained by `Hedgehog12`. No signing credentials belong in this repository. The release steps below were written for the original BridgeClip pipeline; signed builds need your own Apple Developer ID and Windows code-signing certificate.
+vClip source and downloads live in `Hedgehog12/vclip`, maintained by `Hedgehog12`. No signing credentials belong in this repository. The release steps below were written for the original BridgeClip pipeline; signed builds need your own Apple Developer ID and Windows code-signing certificate.
 
 ## Packages
 
@@ -14,7 +14,7 @@ These targets describe the pipeline, not an assertion that a release is availabl
 
 ## Maintainer sequence
 
-1. Review the public commit, dependency notices, and generated inventories. Do not publish pre-VlasiichukClip private history. The existing export script remains available for constructing a clean public source snapshot.
+1. Review the public commit, dependency notices, and generated inventories. Do not publish pre-vClip private history. The existing export script remains available for constructing a clean public source snapshot.
 2. Run private CI for the exact 40-character source commit. It runs macOS, Windows, and Linux checks plus macOS/Linux Electron end-to-end tests without signing credentials. The private source watcher checks main and maintainer-owned pull requests periodically; dispatch manually for an immediate run.
 3. Run the private package rehearsal for that commit. This exercises native packaging and the relocated clipping runtime without publishing unsigned packages.
 4. Create an immutable `vX.Y.Z` tag on reviewed main, matching `package.json`. Dispatch the private release workflow from its protected main branch. It resolves `refs/tags/<tag>`, checks main ancestry and version, freezes one commit, and runs CI again for that exact commit.
@@ -22,7 +22,7 @@ These targets describe the pipeline, not an assertion that a release is availabl
 6. Publication requires all four platform/architecture builds. It verifies updater hashes against final bytes, merges macOS metadata, creates a complete manifest, adds the reviewed FFmpeg corresponding-source archive, and signs checksums using the separate release key. It rechecks the source tag, creates a draft, downloads every uploaded asset again, and compares every digest. With publication selected, only then does the draft become public.
 7. Never overwrite a published version. Fixes use a new version/tag. An incomplete upload remains a draft; investigate before explicitly removing a failed draft and retrying. Withdraw a bad public version and replace it with a higher version so installed updaters can recover.
 
-The website links to [GitHub Releases](https://github.com/Hedgehog12/vlasiichukclip/releases). The updater reads `latest-mac.yml`, `latest.yml`, or `latest-linux.yml` from the complete published release. Test a real signed update from the first installed version to the next before claiming update acceptance; a packaging rehearsal does not prove an upgrade path.
+The website links to [GitHub Releases](https://github.com/Hedgehog12/vclip/releases). The updater reads `latest-mac.yml`, `latest.yml`, or `latest-linux.yml` from the complete published release. Test a real signed update from the first installed version to the next before claiming update acceptance; a packaging rehearsal does not prove an upgrade path.
 
 ## Runtime reproduction
 

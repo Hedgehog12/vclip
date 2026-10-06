@@ -3,7 +3,7 @@
 export const APP_NAME = 'vClip'
 export const APP_TAGLINE = 'Open-source AI video clipping'
 
-export const REPO_URL = 'https://github.com/Hedgehog12/vlasiichukclip'
+export const REPO_URL = 'https://github.com/Hedgehog12/vclip'
 export const ISSUES_URL = `${REPO_URL}/issues`
 export const LICENSE_NAME = 'MIT'
 export const AUTHOR_NAME = 'vlasiichuk.pro'

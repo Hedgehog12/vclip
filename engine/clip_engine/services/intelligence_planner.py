@@ -425,7 +425,7 @@ class IntelligencePlannerService:
                 timeout=httpx.Timeout(600.0, connect=30.0),
                 headers={
                     "Authorization": f"Bearer {self.settings.openrouter_api_key}",
-                    "HTTP-Referer": "https://github.com/Hedgehog12/vlasiichukclip",
+                    "HTTP-Referer": "https://github.com/Hedgehog12/vclip",
                     "X-Title": "VlasiichukClip AI Clipping Agent",
                 },
             )

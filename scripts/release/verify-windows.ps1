@@ -7,13 +7,13 @@ function Assert-Signature([string]$Path) {
     if ($name -cne $Publisher) { throw "Unexpected publisher: $name" }
 }
 Assert-Signature $Installer
-$destination = Join-Path $env:RUNNER_TEMP 'VlasiichukClip installed acceptance'
+$destination = Join-Path $env:RUNNER_TEMP 'vClip installed acceptance'
 if (Test-Path $destination) { throw 'Installation directory already exists' }
 $process = Start-Process -FilePath (Resolve-Path $Installer) -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
 if ($process.ExitCode -ne 0) { throw 'NSIS installation failed' }
-$application = Join-Path $destination 'VlasiichukClip.exe'
+$application = Join-Path $destination 'vClip.exe'
 Assert-Signature $application
-Assert-Signature (Join-Path $destination 'Uninstall VlasiichukClip.exe')
+Assert-Signature (Join-Path $destination 'Uninstall vClip.exe')
 $expected = (Get-Content package.json -Raw | ConvertFrom-Json).version
 if ((Get-Item $application).VersionInfo.ProductVersion -ne $expected) { throw 'Installed version mismatch' }
 python scripts/release/verify-runtime.py (Join-Path $destination 'resources')

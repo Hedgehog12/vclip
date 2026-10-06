@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <a href="https://github.com/Hedgehog12/vlasiichukclip/releases"><img src="https://img.shields.io/github/v/release/Hedgehog12/vlasiichukclip?label=download" alt="Latest release" /></a></p>
+  <a href="https://github.com/Hedgehog12/vclip/releases"><img src="https://img.shields.io/github/v/release/Hedgehog12/vclip?label=download" alt="Latest release" /></a></p>
 
 ---
 
@@ -45,9 +45,9 @@ In **Create → Format → Video speed**, choose **1×** (normal), **1.1×**, **
 
 ## Download
 
-The release pipeline targets signed/notarized macOS builds for Apple silicon and Intel, signed Windows x64 installers, and Linux x64 AppImage/DEB packages. Official downloads will appear on [Releases](https://github.com/Hedgehog12/vlasiichukclip/releases) after signing setup and release acceptance are complete. Packages bundle Python, FFmpeg and yt-dlp. Until then, use the development setup below; see [release status and verification](docs/RELEASING.md).
+The release pipeline targets signed/notarized macOS builds for Apple silicon and Intel, signed Windows x64 installers, and Linux x64 AppImage/DEB packages. Official downloads will appear on [Releases](https://github.com/Hedgehog12/vclip/releases) after signing setup and release acceptance are complete. Packages bundle Python, FFmpeg and yt-dlp. Until then, use the development setup below; see [release status and verification](docs/RELEASING.md).
 
-> **Naming:** the app is called **vClip** (formerly VlasiichukClip). The repository, package name, installer file names and the default `~/VlasiichukClip` library folder keep the old name for now, so existing installs, settings and updates keep working.
+> **Naming:** the app is called **vClip** (formerly vClip). The repository, package name, installer file names and the default `~/vClip` library folder keep the old name for now, so existing installs, settings and updates keep working.
 
 On first launch, paste your OpenRouter key into the setup card:
 
@@ -78,8 +78,8 @@ Live channels, Twitch clips, collections, subscriber-only videos and deleted or 
 **Prerequisites:** Node.js 22, Python 3.12, and FFmpeg with the libass-backed `ass` filter for captions. The clipping engine, model, fonts, and locked Python dependencies are included in this repository. In development, vClip uses FFmpeg from `engine-bin/` when it exists, then falls back to your `PATH`. Provider keys are needed for live jobs, not tests.
 
 ```bash
-git clone https://github.com/Hedgehog12/vlasiichukclip
-cd vlasiichukclip
+git clone https://github.com/Hedgehog12/vclip
+cd vclip
 python3.12 -m venv engine/.venv
 engine/.venv/bin/pip install --require-hashes -r engine/requirements.lock
 npm ci

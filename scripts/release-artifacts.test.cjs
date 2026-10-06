@@ -33,7 +33,7 @@ test('Linux artifact names stay consistent across Builder architecture aliases',
     packager[method] = PlatformPackager.prototype[method]
   }
   for (const extension of ['AppImage', 'deb']) {
-    assert.equal(packager.expandArtifactNamePattern({}, extension, Arch.x64), `VlasiichukClip-1.2.3-linux-x64.${extension}`)
+    assert.equal(packager.expandArtifactNamePattern({}, extension, Arch.x64), `vClip-1.2.3-linux-x64.${extension}`)
   }
 })
 
@@ -45,7 +45,7 @@ function fixture(t) {
     fs.mkdirSync(directory)
     const platform = target.startsWith('mac') ? 'mac' : target.startsWith('windows') ? 'win' : 'linux'
     const files = contract.extensions.map(extension => {
-      const name = `VlasiichukClip-1.2.3-${platform}-${target.split('-').at(-1)}.${extension}`
+      const name = `vClip-1.2.3-${platform}-${target.split('-').at(-1)}.${extension}`
       const data = Buffer.from(`fixture ${name}`)
       fs.writeFileSync(path.join(directory, name), data)
       return { url: name, size: data.length, sha512: crypto.createHash('sha512').update(data).digest('base64') }
@@ -70,7 +70,7 @@ test('missing platforms cannot produce a partial public release', async t => {
 })
 test('changed installer bytes and mismatched versions are rejected', async t => {
   const root = fixture(t)
-  fs.appendFileSync(path.join(root, 'windows-x64/VlasiichukClip-1.2.3-win-x64.exe'), 'changed')
+  fs.appendFileSync(path.join(root, 'windows-x64/vClip-1.2.3-win-x64.exe'), 'changed')
   await assert.rejects(collect(root, path.join(root, 'publish'), '1.2.3', 'a'.repeat(40)), /size mismatch/)
   await assert.rejects(collect(root, path.join(root, 'other'), '1.2.4', 'a'.repeat(40)), /Wrong .* version/)
 })
@@ -78,7 +78,7 @@ test('changed installer bytes and mismatched versions are rejected', async t => 
 test('one native package cannot introduce updater entries for another architecture', async t => {
   const root = fixture(t), filename = path.join(root, 'mac-arm64/latest-mac.yml')
   const metadata = yaml.load(fs.readFileSync(filename, 'utf8'))
-  metadata.files.push({ url: 'VlasiichukClip-1.2.3-mac-x64.zip', size: 1, sha512: 'fixture' })
+  metadata.files.push({ url: 'vClip-1.2.3-mac-x64.zip', size: 1, sha512: 'fixture' })
   fs.writeFileSync(filename, yaml.dump(metadata))
   await assert.rejects(collect(root, path.join(root, 'publish'), '1.2.3', 'a'.repeat(40)), /Unexpected mac-arm64 updater entry/)
 })
@@ -86,9 +86,9 @@ test('one native package cannot introduce updater entries for another architectu
 test('notarization metadata uses final ZIP bytes and removes stale DMG blockmaps', t => {
   const root = fixture(t), directory = path.join(root, 'mac-arm64')
   const filename = path.join(directory, 'latest-mac.yml')
-  const blockmap = path.join(directory, 'VlasiichukClip-1.2.3-mac-arm64.dmg.blockmap')
+  const blockmap = path.join(directory, 'vClip-1.2.3-mac-arm64.dmg.blockmap')
   fs.writeFileSync(blockmap, 'old map')
-  fs.appendFileSync(path.join(directory, 'VlasiichukClip-1.2.3-mac-arm64.dmg'), 'notarization ticket')
+  fs.appendFileSync(path.join(directory, 'vClip-1.2.3-mac-arm64.dmg'), 'notarization ticket')
   execFileSync(process.execPath, [path.join(__dirname, 'release/refresh-metadata.cjs'), filename])
   const metadata = yaml.load(fs.readFileSync(filename, 'utf8'))
   assert.equal(metadata.files.length, 1)
