@@ -370,7 +370,7 @@ async function coverJpeg(source: string): Promise<string> {
   const image = head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) || (head[0] === 0xff && head[1] === 0xd8) ||
     (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP')
   if (!image) throw new Error('The thumbnail is not a PNG, JPEG or WebP picture.')
-  const target = join(app.getPath('temp'), `vlasiichukclip-cover-${randomUUID()}.jpg`)
+  const target = join(app.getPath('temp'), `vclip-cover-${randomUUID()}.jpg`)
   try {
     for (const quality of ['3', '8']) {
       await execFileAsync(resolveBinary('ffmpeg'), [

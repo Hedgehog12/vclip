@@ -460,7 +460,7 @@ export function startClipJob(
     ...runtimeEnvironment(),
     ...envVars,
     PYTHONPATH: enginePath,
-    VLASIICHUKCLIP_WORK_ROOT: jobWorkRoot,
+    VCLIP_WORK_ROOT: jobWorkRoot,
     PYTHONUNBUFFERED: '1',
     PYTHONDONTWRITEBYTECODE: '1'
   }

@@ -49,7 +49,7 @@ const LOCAL_PAGE = 50
 /** Rows per request to Zernio for the workspace list. */
 const REMOTE_PAGE = 50
 const SEARCH_DEBOUNCE_MS = 300
-const VIEW_STORAGE_KEY = 'vlasiichukclip.posts.view'
+const VIEW_STORAGE_KEY = 'vclip.posts.view'
 /** Content, platforms, date, status, profile, actions. */
 const ROW_GRID = 'lg:grid-cols-[minmax(0,1fr)_96px_120px_120px_110px_216px]'
 

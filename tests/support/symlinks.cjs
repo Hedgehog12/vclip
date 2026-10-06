@@ -5,7 +5,7 @@ const os = require('node:os')
 const path = require('node:path')
 
 function canCreateLink(type) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-link-probe-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-link-probe-'))
   const target = path.join(root, 'target')
   try {
     if (type === 'file') fs.writeFileSync(target, '')

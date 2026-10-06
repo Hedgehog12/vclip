@@ -36,7 +36,7 @@ import {
 type GetWindow = () => BrowserWindow | null
 
 /** Development-only environment hooks for end-to-end tests; always off in packaged builds. */
-function devHook(name: 'VLASIICHUKCLIP_ZERNIO_API_URL' | 'VLASIICHUKCLIP_E2E_BROWSER_URL' | 'VLASIICHUKCLIP_E2E'): string | undefined {
+function devHook(name: 'VCLIP_ZERNIO_API_URL' | 'VCLIP_E2E_BROWSER_URL' | 'VCLIP_E2E'): string | undefined {
   return app.isPackaged ? undefined : process.env[name] || undefined
 }
 
@@ -44,7 +44,7 @@ export function getClient(): ZernioClient {
   const { zernioApiKey } = loadSettings()
   if (!zernioApiKey) throw new ZernioApiError('Add your Zernio API key to connect social accounts.', 401, 'missing_key')
   // Development-only hook for end-to-end tests against a local mock Zernio.
-  return new ZernioClient(zernioApiKey, devHook('VLASIICHUKCLIP_ZERNIO_API_URL'))
+  return new ZernioClient(zernioApiKey, devHook('VCLIP_ZERNIO_API_URL'))
 }
 
 /** Renderer-safe description of any failure from this module. */
@@ -248,7 +248,7 @@ function send(getWindow: GetWindow, channel: string, payload: unknown): BrowserW
 
 function bringToFront(window: BrowserWindow): void {
   // Scripted test runs keep their window hidden and never take focus.
-  if (devHook('VLASIICHUKCLIP_E2E') === '1') return
+  if (devHook('VCLIP_E2E') === '1') return
   if (window.isMinimized()) window.restore()
   window.show()
   // The user is coming back from their browser; macOS won't raise the app without this.
@@ -260,7 +260,7 @@ function bringToFront(window: BrowserWindow): void {
 async function openInBrowser(url: string): Promise<void> {
   // Development-only: a scripted "browser" follows the link in e2e runs, so
   // tests never open the developer's real browser.
-  const scriptedBrowser = devHook('VLASIICHUKCLIP_E2E_BROWSER_URL')
+  const scriptedBrowser = devHook('VCLIP_E2E_BROWSER_URL')
   if (scriptedBrowser && /^http:\/\/127\.0\.0\.1:\d+\//.test(scriptedBrowser)) {
     const response = await fetch(scriptedBrowser, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })
     if (!response.ok) throw new Error('The test browser refused the sign-in link.')

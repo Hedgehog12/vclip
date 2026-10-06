@@ -1,6 +1,6 @@
 # Security review — 24 September 2026
 
-Historical snapshot: this review predates the move of the clipping engine into `engine/` in the VlasiichukClip repository. References below to a separate legacy engine checkout and release pin describe the earlier design; see [Architecture](ARCHITECTURE.md) and [Releasing](RELEASING.md) for the current design.
+Historical snapshot: this review predates the move of the clipping engine into `engine/` in the vClip repository. References below to a separate legacy engine checkout and release pin describe the earlier design; see [Architecture](ARCHITECTURE.md) and [Releasing](RELEASING.md) for the current design.
 
 ## Verdict
 
@@ -12,7 +12,7 @@ The checkout already contained extensive staged, unstaged and untracked work. Fi
 
 Reviewed the desktop Electron main/preload/renderer trust boundaries, IPC registration and validation, local-file protocol, file authorization/export, secure settings and migration, logging, process execution and cancellation, Python bridge, public-network validation, social connection callbacks, provider clients/uploads, account and post caches, automation scheduling/metadata, updater configuration, packaging and CI/release workflows, source export, dependency manifests, and the adjacent static Next.js website.
 
-Also inspected the staged legacy engine's download/network/media paths and patched the corresponding source checkout of the legacy engine (a separate repository). Changes to its downloader, transcription, visual sampling, layout analysis and rendering must ship with VlasiichukClip. The ignored staged engine was patched as well for local smoke tests; it is not the source of truth. The complete legacy engine test suite ran, but this was not a comprehensive audit of its separately deployed API infrastructure.
+Also inspected the staged legacy engine's download/network/media paths and patched the corresponding source checkout of the legacy engine (a separate repository). Changes to its downloader, transcription, visual sampling, layout analysis and rendering must ship with vClip. The ignored staged engine was patched as well for local smoke tests; it is not the source of truth. The complete legacy engine test suite ran, but this was not a comprehensive audit of its separately deployed API infrastructure.
 
 Threats considered: malicious imported/downloaded media, hostile provider responses and redirects, compromised renderer calls, local files/symlinks, accidental credential publication, and release supply-chain mistakes. No production accounts or private media were used. No exploitation of remote services was attempted.
 
@@ -52,7 +52,7 @@ Threats considered: malicious imported/downloaded media, hostile provider respon
 - Packaging: installed electron-builder configuration validator passes; modified shell scripts parse successfully. A newly signed/notarized package was not built or tested during this review.
 - npm registry audits: zero reported vulnerabilities for both application lockfiles, including development dependencies.
 - Python lock audit: 48 staged legacy engine dependencies checked with pip-audit 2.10.1; zero reported vulnerabilities. This does not audit the Python interpreter, FFmpeg, OpenCV's native code, or every bundled library.
-- Gitleaks: current application/website source, available VlasiichukClip Git history, and the exported VlasiichukClip/legacy engine source snapshot returned zero findings. Pattern scanners cannot prove absence of secrets. Ignored local environments, caches, user data, build output and binaries must stay out of the public source snapshot.
+- Gitleaks: current application/website source, available vClip Git history, and the exported vClip/legacy engine source snapshot returned zero findings. Pattern scanners cannot prove absence of secrets. Ignored local environments, caches, user data, build output and binaries must stay out of the public source snapshot.
 
 ## Remaining publication/release gates
 

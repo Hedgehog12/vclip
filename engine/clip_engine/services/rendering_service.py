@@ -195,7 +195,7 @@ class RenderingService:
         logger.info("FFmpeg available")
 
     def _video_codec_args(self, out_w: int = 1080, out_h: int = 1920, fps: str = "30") -> list[str]:
-        """Use the bundled LGPL encoders in VlasiichukClip; retain server encoding.
+        """Use the bundled LGPL encoders in vClip; retain server encoding.
 
         Keyframes every 2 s keep long clips seekable. Landscape bitrates scale
         with resolution and frame rate (VideoToolbox is bitrate-driven).
@@ -882,7 +882,7 @@ class RenderingService:
         """Render the channel URL banner as a transparent PNG.
 
         Drawn with Pillow rather than FFmpeg's drawtext: the static FFmpeg
-        builds VlasiichukClip ships (6.1+) omit drawtext, which made any render with
+        builds vClip ships (6.1+) omit drawtext, which made any render with
         a banner fail.
 
         Returns (path, width, height) or None when no banner is configured.
@@ -1115,7 +1115,7 @@ class RenderingService:
                 # FFmpeg opens it, which is required on Windows.
                 with tempfile.NamedTemporaryFile(
                     mode="w", encoding="utf-8", suffix=".ffgraph",
-                    prefix="vlasiichukclip-filter-", delete=False,
+                    prefix="vclip-filter-", delete=False,
                 ) as script:
                     script_path = script.name
                     script.write(graph)

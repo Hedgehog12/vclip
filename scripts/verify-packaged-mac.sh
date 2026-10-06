@@ -85,7 +85,7 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$resources/engine" "$resources/engine-venv
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$resources/engine" "$resources/engine-venv/bin/python3" \
   "$resources/bridge/smoke_transcription_audio.py" "$resources/engine-bin"
 
-smoke_ass="$(mktemp -t vlasiichukclip-packaged-captions).ass"
+smoke_ass="$(mktemp -t vclip-packaged-captions).ass"
 trap 'rm -f "$smoke_ass"' EXIT
 cat > "$smoke_ass" <<'ASS'
 [Script Info]

@@ -23,15 +23,15 @@ async function setup(t, { isPackaged = false, key = KEY, browserHook = false, mo
   const tmp = tempDir()
   const mock = await createMockZernio({ apiKey: KEY, ...mockOptions })
   const fake = fakeElectron(tmp.dir, { isPackaged })
-  process.env.VLASIICHUKCLIP_ZERNIO_API_URL = mock.apiUrl
-  if (browserHook) process.env.VLASIICHUKCLIP_E2E_BROWSER_URL = mock.browserUrl
+  process.env.VCLIP_ZERNIO_API_URL = mock.apiUrl
+  if (browserHook) process.env.VCLIP_E2E_BROWSER_URL = mock.browserUrl
   const service = loadMain(ENTRY, { electron: fake.electron })
   if (key) service.replaceApiKey('zernioApiKey', key)
   const getWindow = () => fake.window
   t.after(async () => {
     service.cancelZernioConnect()
-    delete process.env.VLASIICHUKCLIP_ZERNIO_API_URL
-    delete process.env.VLASIICHUKCLIP_E2E_BROWSER_URL
+    delete process.env.VCLIP_ZERNIO_API_URL
+    delete process.env.VCLIP_E2E_BROWSER_URL
     await mock.close()
     tmp.cleanup()
   })
@@ -352,8 +352,8 @@ test('connect: gives up after 10 minutes without a redirect and says so', async 
 
 test('dev hooks: the scripted browser is used only in unpackaged builds', async (t) => {
   const { service, mock, fake, getWindow, results } = await setup(t, { browserHook: true })
-  process.env.VLASIICHUKCLIP_E2E = '1'
-  t.after(() => { delete process.env.VLASIICHUKCLIP_E2E })
+  process.env.VCLIP_E2E = '1'
+  t.after(() => { delete process.env.VCLIP_E2E })
   await service.connectZernioAccount('instagram', mock.state.profiles[0]._id, undefined, getWindow)
   assert.equal(fake.calls.openExternal.length, 0)
   assert.equal(mock.state.opened.length, 1)

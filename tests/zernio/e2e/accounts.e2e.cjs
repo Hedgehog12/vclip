@@ -1,11 +1,11 @@
 'use strict'
-// End-to-end: the real VlasiichukClip app (production build, isolated userData,
+// End-to-end: the real vClip app (production build, isolated userData,
 // hidden window) against the mock Zernio and its scripted browser.
 //
 //   npm run test:e2e
 //
-// Optional: VLASIICHUKCLIP_E2E_APP_DIR (build folder), VLASIICHUKCLIP_E2E_SKIP_BUILD=1
-// (reuse the last build), VLASIICHUKCLIP_E2E_SHOTS (folder for screenshots).
+// Optional: VCLIP_E2E_APP_DIR (build folder), VCLIP_E2E_SKIP_BUILD=1
+// (reuse the last build), VCLIP_E2E_SHOTS (folder for screenshots).
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -20,8 +20,8 @@ const TIMEOUT = 15_000
 
 test('accounts: set up, connect, reconnect, disconnect, recover and work offline', { timeout: 300_000 }, async (t) => {
   const appDir = buildApp()
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-e2e-userdata-'))
-  const shots = process.env.VLASIICHUKCLIP_E2E_SHOTS
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-e2e-userdata-'))
+  const shots = process.env.VCLIP_E2E_SHOTS
   const mock = await createMockZernio({ apiKey: KEY })
   const [profile] = mock.state.profiles
   mock.addProfile('Brand')

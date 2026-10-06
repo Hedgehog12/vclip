@@ -37,8 +37,8 @@ else
   pbs_hash="65b195c9cedc1fef6767f044f9822069adbd1bd9204d424ece4628776fdc04bb"
 fi
 
-archive="$(mktemp -t vlasiichukclip-python).tar.gz"
-work_dir="$(mktemp -d -t vlasiichukclip-resources)"
+archive="$(mktemp -t vclip-python).tar.gz"
+work_dir="$(mktemp -d -t vclip-resources)"
 trap 'rm -f "$archive"; rm -rf "$work_dir"' EXIT
 pbs_url="https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14+20260901-${pbs_arch}-apple-darwin-install_only_stripped.tar.gz"
 curl --fail --show-error --location --retry 3 "$pbs_url" -o "$archive"

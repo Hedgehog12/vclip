@@ -22,7 +22,7 @@ output_dir="${1:-engine-bin}"
 version="8.1.3"
 source_hash="7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3"
 source_url="https://ffmpeg.org/releases/ffmpeg-${version}.tar.xz"
-work_dir="$(mktemp -d -t vlasiichukclip-ffmpeg)"
+work_dir="$(mktemp -d -t vclip-ffmpeg)"
 trap 'rm -rf "$work_dir"' EXIT
 
 curl --fail --show-error --location --retry 3 "$source_url" -o "$work_dir/ffmpeg.tar.xz"
@@ -70,7 +70,7 @@ done
   echo "Missing PNG decoder for title-card overlays" >&2; exit 1;
 }
 
-smoke_ass="$(mktemp -t vlasiichukclip-captions).ass"
+smoke_ass="$(mktemp -t vclip-captions).ass"
 trap 'rm -rf "$work_dir"; rm -f "$smoke_ass"' EXIT
 cat > "$smoke_ass" <<'ASS'
 [Script Info]

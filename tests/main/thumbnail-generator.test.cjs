@@ -26,7 +26,7 @@ const JPEG_FRAME = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
 
 /** A run folder with one rendered clip, and a generator wired to fake ffmpeg, OpenRouter and settings. */
 function setup(respond) {
-  const library = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-thumbs-')))
+  const library = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-thumbs-')))
   const runDir = path.join(library, '11111111-2222-4333-8444-555555555555')
   fs.mkdirSync(runDir)
   const clip = path.join(runDir, 'clip_01.mp4')

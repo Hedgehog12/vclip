@@ -1,4 +1,4 @@
-"""Offline tests for VlasiichukClip's OpenRouter transcription parsing and vocabulary hints."""
+"""Offline tests for vClip's OpenRouter transcription parsing and vocabulary hints."""
 
 import pytest
 
@@ -70,10 +70,10 @@ class TestParseTranscriptionResponse:
 
 class TestNormalizeKeyterms:
     def test_enforces_provider_limits(self):
-        terms = ["  VlasiichukClip  ", "vlasiichukclip", "one two three four five six", "bad<chars>", "x" * 80, "", None]
+        terms = ["  vClip  ", "vclip", "one two three four five six", "bad<chars>", "x" * 80, "", None]
         cleaned = normalize_keyterms(terms)
-        assert cleaned[0] == "VlasiichukClip"
-        assert "vlasiichukclip" not in cleaned
+        assert cleaned[0] == "vClip"
+        assert "vclip" not in cleaned
         assert not any("six" in t or "<" in t for t in cleaned)
         assert all(len(t) < 50 for t in cleaned)
         assert len(cleaned) == 2

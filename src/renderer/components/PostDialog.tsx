@@ -96,7 +96,7 @@ export function postableFromDraft(draft: Pick<PostDraft, 'clipPath' | 'clipTitle
 }
 
 /** The AI's category for the clip, else YouTube's default. */
-const CATEGORY_STORAGE_KEY = 'vlasiichukclip.youtube.defaultCategory'
+const CATEGORY_STORAGE_KEY = 'vclip.youtube.defaultCategory'
 
 /** The category the user chose as their default, if any (kept on this computer). */
 function savedCategory(): string | null {

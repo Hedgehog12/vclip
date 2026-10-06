@@ -2,7 +2,7 @@
 
 vClip keeps its desktop clipping engine, model, fonts, and locked Python dependencies in `engine/`. A user needs only this source repository, the documented runtimes, and their own provider key. The former separate engine repository is not part of the development or release path.
 
-From the vClip checkout, run `bash scripts/export-public-draft.sh /path/to/new-draft-directory` with a new path outside this checkout. The script checks an exact [file manifest](../scripts/public-draft-manifest.txt), rejects unreviewed files and symlinks in the selected source directories, and creates one `vlasiichukclip/` draft without the former development history, local configuration, or build output. Add new source files to the manifest only after reviewing them. Review and secret-scan the **exact exported bytes** before any public push; the manifest checks file paths, not their contents.
+From the vClip checkout, run `bash scripts/export-public-draft.sh /path/to/new-draft-directory` with a new path outside this checkout. The script checks an exact [file manifest](../scripts/public-draft-manifest.txt), rejects unreviewed files and symlinks in the selected source directories, and creates one `vclip/` draft without the former development history, local configuration, or build output. Add new source files to the manifest only after reviewing them. Review and secret-scan the **exact exported bytes** before any public push; the manifest checks file paths, not their contents.
 
 ## Publication gates
 

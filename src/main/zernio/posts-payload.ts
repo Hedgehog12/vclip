@@ -280,7 +280,7 @@ export function buildCreatePostBody(request: PostClipRequest, context: PostBodyC
     mediaItems: [{ type: 'video', url: context.publicUrl,
       ...(context.thumbnailUrl && request.targets.some((t) => t.platform === 'youtube') ? { thumbnail: context.thumbnailUrl } : {}) }],
     platforms,
-    metadata: { source: 'vlasiichukclip' }
+    metadata: { source: 'vclip' }
   }
   if (options.youtube?.tags?.length) body.tags = options.youtube.tags
   if (request.timing.mode === 'now') {

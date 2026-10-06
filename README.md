@@ -47,7 +47,7 @@ In **Create → Format → Video speed**, choose **1×** (normal), **1.1×**, **
 
 The release pipeline targets signed/notarized macOS builds for Apple silicon and Intel, signed Windows x64 installers, and Linux x64 AppImage/DEB packages. Official downloads will appear on [Releases](https://github.com/Hedgehog12/vclip/releases) after signing setup and release acceptance are complete. Packages bundle Python, FFmpeg and yt-dlp. Until then, use the development setup below; see [release status and verification](docs/RELEASING.md).
 
-> **Naming:** the app is called **vClip** (formerly vClip). The repository, package name, installer file names and the default `~/vClip` library folder keep the old name for now, so existing installs, settings and updates keep working.
+> **Naming:** the app is called **vClip** (formerly VlasiichukClip). If you used an earlier version, vClip keeps using your existing `VlasiichukClip` data and clips folders, so settings and your library carry over.
 
 On first launch, paste your OpenRouter key into the setup card:
 
@@ -129,7 +129,7 @@ Private release workflows package the in-repo engine and media tools for macOS, 
 
 ```
 src/main/        Electron main process: settings, pipeline runner, IPC, optional Zernio posting
-src/preload/     The typed window.vlasiichukclip API exposed to the renderer
+src/preload/     The typed window.vclip API exposed to the renderer
 src/renderer/    React UI (Create, Library, Jobs, Accounts, Posts, Automations, Settings)
 src/shared/      Product constants shared by main and renderer
 bridge/          Python worker protocol and network guard

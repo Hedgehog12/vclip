@@ -27,7 +27,7 @@ function draftFor(automation: Automation): AutomationUpdate {
   return { name: automation.name, enabled: automation.enabled, profileId: automation.profileId, metadataMode: automation.metadataMode, accounts: automation.accounts, times: automation.times, timezone: automation.timezone, youtubeVisibility: automation.youtubeVisibility, youtubeMadeForKids: automation.youtubeMadeForKids }
 }
 
-const SELECTED_STORAGE_KEY = 'vlasiichukclip.automations.selectedId'
+const SELECTED_STORAGE_KEY = 'vclip.automations.selectedId'
 
 function rememberSelection(id: string | null): void {
   try {

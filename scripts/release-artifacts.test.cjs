@@ -38,7 +38,7 @@ test('Linux artifact names stay consistent across Builder architecture aliases',
 })
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-artifacts-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-artifacts-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   for (const [target, contract] of Object.entries(targets)) {
     const directory = path.join(root, target)

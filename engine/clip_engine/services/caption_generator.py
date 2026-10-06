@@ -493,7 +493,7 @@ class CaptionGeneratorService:
         )
 
         return f"""[Script Info]
-Title: VlasiichukClip Captions
+Title: vClip Captions
 ScriptType: v4.00+
 WrapStyle: 0
 ScaledBorderAndShadow: yes

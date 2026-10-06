@@ -14,7 +14,7 @@ import {
   isValidProfileName
 } from '../../shared/zernio'
 
-const PROFILE_STORAGE_KEY = 'vlasiichukclip.zernio.profileId'
+const PROFILE_STORAGE_KEY = 'vclip.zernio.profileId'
 /**
  * Coming back to the window refreshes at most this often. A refresh costs 3
  * Zernio requests and the free tier allows 60 a minute, so there is no polling.

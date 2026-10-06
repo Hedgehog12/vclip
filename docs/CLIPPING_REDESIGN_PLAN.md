@@ -11,7 +11,7 @@ Users see one layout because of four stacked failures, not one:
 | # | Root cause | Status | Where |
 |---|---|---|---|
 | RC1 | Every smart render fails inside FFmpeg on an audio channel-layout error and silently re-renders as the blurred letterbox, **also discarding pacing cuts**. Today's log: 16 failures, 17 of 18 clips came out `fit`. | Verified + reproduced; fix verified | `<legacy-engine-checkout>/app/services/layout_renderer.py:280`, `rendering_service.py:181-195` |
-| RC2 | Release builds pin the legacy engine at `1d2c2fd`, the April center-crop engine. The installed 0.1.16 has no layout code, no face model, no OpenCV. The current working tree would **fail every job** against that pin (bridge passes `layout_style`/`pacing`, which `1d2c2fd` doesn't accept). | Verified | `vlasiichukclip/.github/workflows/release.yml:88`, `bridge/bridge_runner.py:151-152` |
+| RC2 | Release builds pin the legacy engine at `1d2c2fd`, the April center-crop engine. The installed 0.1.16 has no layout code, no face model, no OpenCV. The current working tree would **fail every job** against that pin (bridge passes `layout_style`/`pacing`, which `1d2c2fd` doesn't accept). | Verified | `vclip/.github/workflows/release.yml:88`, `bridge/bridge_runner.py:151-152` |
 | RC3 | Concurrent renders share one YuNet detector; OpenCV 5 asserts and that clip falls back to letterbox. OpenCV 5's DNN engine is also ~5x slower. | Verified + reproduced | `layout_analyzer.py:839-845`, `requirements.txt` |
 | RC4 | Even when it works, each layout has one fixed arrangement: always 50/50, screen always on top, webcam panel over-zoomed ~5x, webcam bleeding into the screen panel. | Verified (design + rendered frames) | `layout_renderer.py:24, 131-142, 183-190` |
 
@@ -353,7 +353,7 @@ Motion rules:
 ## 5. Decisions
 
 **Decided 2026-09-24 (supersedes the 2026-09-23 engine decision):**
-- **Engine:** the clipping engine lives in `vlasiichukclip/engine/` (package `clip_engine`) under MIT, and release builds package it directly. The former engine repository is deprecated; vClip no longer pins, stages or reads it. Legacy engine references elsewhere in this plan are historical.
+- **Engine:** the clipping engine lives in `vclip/engine/` (package `clip_engine`) under MIT, and release builds package it directly. The former engine repository is deprecated; vClip no longer pins, stages or reads it. Legacy engine references elsewhere in this plan are historical.
 
 **Decided 2026-09-23:**
 - **Vision check:** only when local confidence is low, once per setup, with a toggle and a cost line.
@@ -362,7 +362,7 @@ Motion rules:
 Still open: bundle size (item 2) and default split (item 4). Both default to the recommendations below.
 
 
-1. **Engine location.** Recommended: move the stripped local engine into `vlasiichukclip/engine/` under MIT. Alternative: publish the legacy engine repository as MIT and keep pinning it. Staying private blocks open source and keeps causing pin drift like RC2.
+1. **Engine location.** Recommended: move the stripped local engine into `vclip/engine/` under MIT. Alternative: publish the legacy engine repository as MIT and keep pinning it. Staying private blocks open source and keeps causing pin drift like RC2.
 2. **Bundle size.** Is ~+150 MB for OpenCV acceptable? (No torch/mediapipe; that's the minimum for local smart framing.)
 3. **Vision LLM default.** Recommended: local-first, calling the vision model only on low confidence, once per setup, with a visible toggle and cost line. Today it's on for every shot, hidden from the cost breakdown.
 4. **Default split for screen + cam.** Recommended: screen 60 / cam 40, with the resolver dropping to `screen_fit_cam` or `pip` when the webcam is too small to fill 40% without exceeding the upscale budget.
@@ -370,6 +370,6 @@ Still open: bundle size (item 2) and default split (item 4). Both default to the
 
 ## 6. Evidence
 
-- App log: `~/Library/Logs/vClip/vlasiichukclip.log`, with 16× `Cannot select channel layout` / `Smart render failed, retrying as classic letterbox`.
+- App log: `~/Library/Logs/vClip/vclip.log`, with 16× `Cannot select channel layout` / `Smart render failed, retrying as classic letterbox`.
 - The reviewers' repro scripts, captured FFmpeg commands and rendered frames were written to this session's temporary scratchpad (`framing/`, `clipping/`, `product/`). Copy them out if they should be kept.
 - Pre-refactor stack for salvage: `git -C <legacy-engine-checkout> show 810da77^:<path>`. Past zoom failures: `<legacy-engine-checkout>/README_FACE_CROPPING_ZOOM_ANALYSIS.md`, `ZOOM_FIX_PLAN_*.md`.

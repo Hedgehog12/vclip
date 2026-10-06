@@ -33,7 +33,7 @@ const fileManager = load('main/file-manager.ts', {
 const ID = '0f6b3c1e-8a2d-4b7e-9c11-2a3b4c5d6e7f'
 
 function library() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-review-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-review-'))
   return { root, run: path.join(root, ID), cleanup: () => fs.rmSync(root, { recursive: true, force: true }) }
 }
 
@@ -151,7 +151,7 @@ test('storage usage splits each run into stream, clips and other files; delete r
     fs.writeFileSync(path.join(run, 'clip_00.thumbnail.png'), Buffer.alloc(100))
     fs.writeFileSync(path.join(run, 'transcript.json'), Buffer.alloc(50))
     fs.mkdirSync(path.join(root, 'not-a-job'))
-    const outside = path.join(os.tmpdir(), `vlasiichukclip-outside-${process.pid}.mp4`)
+    const outside = path.join(os.tmpdir(), `vclip-outside-${process.pid}.mp4`)
     fs.writeFileSync(outside, Buffer.alloc(99999))
     if (fileLinksAvailable) fs.symlinkSync(outside, path.join(run, 'linked.mp4'))
     else t.diagnostic('File links unavailable; symlink size check skipped')

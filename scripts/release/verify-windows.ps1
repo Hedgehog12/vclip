@@ -18,7 +18,7 @@ $expected = (Get-Content package.json -Raw | ConvertFrom-Json).version
 if ((Get-Item $application).VersionInfo.ProductVersion -ne $expected) { throw 'Installed version mismatch' }
 python scripts/release/verify-runtime.py (Join-Path $destination 'resources')
 if ($LASTEXITCODE -ne 0) { throw 'Installed runtime verification failed' }
-$probe = Start-Process -FilePath $application -ArgumentList "--user-data-dir=`"$env:RUNNER_TEMP\vlasiichukclip-acceptance-profile`"" -PassThru
+$probe = Start-Process -FilePath $application -ArgumentList "--user-data-dir=`"$env:RUNNER_TEMP\vclip-acceptance-profile`"" -PassThru
 Start-Sleep -Seconds 8
 $probe.Refresh()
 if ($probe.HasExited) { throw 'Installed app exited during startup' }

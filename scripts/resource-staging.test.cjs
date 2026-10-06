@@ -7,7 +7,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 test('resource staging preserves existing tools when the in-repo engine is incomplete', { skip: process.platform !== 'darwin' }, () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-stage-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-stage-'))
   try {
     const scripts = path.join(dir, 'scripts')
     fs.mkdirSync(scripts)

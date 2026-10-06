@@ -14,7 +14,7 @@ import { PostedBadge, clipKey, isPosted, usePostedClips } from './PostedBadge'
 import { Dialog } from './ui/Dialog'
 import { TextInput } from './ui/Field'
 
-const HIDE_POSTED_KEY = 'vlasiichukclip.picker.hidePosted'
+const HIDE_POSTED_KEY = 'vclip.picker.hidePosted'
 
 function readHidePosted(): boolean {
   try { return localStorage.getItem(HIDE_POSTED_KEY) === '1' } catch { return false }

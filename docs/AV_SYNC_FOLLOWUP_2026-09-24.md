@@ -1,6 +1,6 @@
 # Remaining audio delay: root cause, fix, and verification
 
-The remaining delay was reproduced in an actual recent VlasiichukClip export and
+The remaining delay was reproduced in an actual recent vClip export and
 isolated to the final audio presentation timestamps after loudness normalization.
 The fix is in the local engine. Existing exports require regeneration; no release
 was published as part of this review.

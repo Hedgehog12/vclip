@@ -7,10 +7,10 @@ const path = require('node:path')
 const { buildApp, launchApp } = require('../zernio/support/electron-app.cjs')
 
 test('Electron serves only library media and supports bounded byte ranges', async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-media-e2e-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-media-e2e-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const userDataDir = path.join(root, 'user-data')
-  const library = path.join(userDataDir, 'VlasiichukClip')
+  const library = path.join(userDataDir, 'vClip')
   fs.mkdirSync(library, { recursive: true })
   const inside = path.join(library, 'clip.mp4')
   const image = path.join(library, 'frame.png')

@@ -1,6 +1,6 @@
 # Security follow-up — 24 September 2026
 
-Historical snapshot: this follow-up predates the move of the clipping engine into `engine/` in the VlasiichukClip repository. References below to a separate legacy engine checkout and release pin describe the earlier design; see [Architecture](ARCHITECTURE.md) and [Releasing](RELEASING.md) for the current design.
+Historical snapshot: this follow-up predates the move of the clipping engine into `engine/` in the vClip repository. References below to a separate legacy engine checkout and release pin describe the earlier design; see [Architecture](ARCHITECTURE.md) and [Releasing](RELEASING.md) for the current design.
 
 This follows [the original review](SECURITY_REVIEW_2026-09-24.md). The five original findings remain fixed. Original review statements about actions not performed describe that first pass only.
 
@@ -21,7 +21,7 @@ A fresh Apple silicon diagnostic package completed Developer ID signing and pass
 
 ## External facts and unresolved gates
 
-- The separate legacy engine repository exists, is private, and contains old history. It must not simply be made public. The current account has administrative access. Branch protection and repository rulesets were absent when inspected. The proposed `Hedgehog12/vlasiichukclip` repository was not accessible (GitHub returned 404); the account has administrative membership of the organization.
+- The separate legacy engine repository exists, is private, and contains old history. It must not simply be made public. The current account has administrative access. Branch protection and repository rulesets were absent when inspected. The proposed `Hedgehog12/vclip` repository was not accessible (GitHub returned 404); the account has administrative membership of the organization.
 - Ownership/contributor permission for original code and artwork requires the maintainer's factual confirmation. Bundled third-party licensing remains separate. The renderer notice gap has been repaired. Two installed runtime packages (`lazy-val` and `@electron-internal/extract-zip`) declare MIT and BSD-2-Clause respectively but omit root license files in their installed distributions; retain/review authoritative upstream terms and bundled native notices before approving binary redistribution. No permission was invented on their behalf.
 - A new engine repository destination is needed to preserve the private development history. The ownership and destination questions remain pending. No repository visibility, history, permissions, release or public source has been changed. `UNPINNED` remains in place until the reviewed engine commit is available at the agreed public destination.
 - A Developer ID Application signing identity is available locally, but notarization credentials were not available in the process environment. A protected release environment with the required credentials/reviewers must be configured on the final repository. Do not paste credentials into chat.

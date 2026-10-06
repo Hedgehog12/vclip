@@ -19,12 +19,12 @@ async function choose(page, combobox, name) {
 }
 
 test('add library clips, review TikTok, and run a mixed-platform automation', { timeout: 180_000 }, async (t) => {
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-automation-e2e-'))
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-automation-e2e-'))
   const clip = path.join(work, 'new_clip.mp4')
   execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=green:s=360x640:d=4:r=15',
     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-shortest', '-c:v', 'mpeg4', '-q:v', '8',
     '-c:a', 'aac', '-movflags', '+faststart', clip])
-  const run = path.join(work, 'userData', 'VlasiichukClip', 'automation-library-run')
+  const run = path.join(work, 'userData', 'vClip', 'automation-library-run')
   fs.mkdirSync(run, { recursive: true })
   const clips = ['first.mp4', 'second.mp4'].map((name) => {
     const target = path.join(run, name)
@@ -52,7 +52,7 @@ test('add library clips, review TikTok, and run a mixed-platform automation', { 
   const appDir = buildApp(path.join(work, 'app'))
   session = await launchApp({ appDir, userDataDir: path.join(work, 'userData'), mock })
   const { page, app } = session
-  await page.evaluate((key) => window.vlasiichukclip.settings.replaceApiKey('zernioApiKey', key), KEY)
+  await page.evaluate((key) => window.vclip.settings.replaceApiKey('zernioApiKey', key), KEY)
   await page.reload()
   await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: /Automations/ }).click()
   await page.getByLabel('Automation name').fill('Vlasiichuk')

@@ -86,7 +86,7 @@ function record(extra = {}) {
 }
 
 test('details survive saving and loading the post history', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-post-details-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-post-details-'))
   try {
     const history = new store.PostsStore(path.join(dir, 'posts.json'))
     const details = payload.postDetailsFrom(request(), true, ['A notice'])

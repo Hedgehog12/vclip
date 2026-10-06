@@ -426,7 +426,7 @@ class IntelligencePlannerService:
                 headers={
                     "Authorization": f"Bearer {self.settings.openrouter_api_key}",
                     "HTTP-Referer": "https://github.com/Hedgehog12/vclip",
-                    "X-Title": "VlasiichukClip AI Clipping Agent",
+                    "X-Title": "vClip AI Clipping Agent",
                 },
             )
         return self._http_client

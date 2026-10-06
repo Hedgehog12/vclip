@@ -1,11 +1,11 @@
-import type { VlasiichukClipAPI } from '../../preload/index'
+import type { VClipAPI } from '../../preload/index'
 
 declare global {
   interface Window {
-    vlasiichukclip: VlasiichukClipAPI
+    vclip: VClipAPI
   }
 }
 
-export function getApi(): VlasiichukClipAPI {
-  return window.vlasiichukclip
+export function getApi(): VClipAPI {
+  return window.vclip
 }

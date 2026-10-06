@@ -26,7 +26,7 @@ function snapshot(status, revision, step) {
 }
 
 test('a new job shows on the Jobs page from the moment it starts, next to jobs waiting for review', { timeout: 120000 }, async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-jobs-e2e-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-jobs-e2e-'))
   const appDir = buildApp()
   console.log('built')
   const session = await launchApp({ appDir, userDataDir: path.join(root, 'user-data') })
@@ -62,7 +62,7 @@ test('a new job shows on the Jobs page from the moment it starts, next to jobs w
 })
 
 test('the real start path lists the job while it runs, with jobs waiting for review', { timeout: 240000 }, async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-jobs-real-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-jobs-real-'))
   const appDir = buildApp()
   // The dev layout: the bridge and engine sit next to out/.
   for (const name of ['bridge', 'engine']) {
@@ -78,10 +78,10 @@ test('the real start path lists the job while it runs, with jobs waiting for rev
     ipcMain.handle('history:list', () => history)
   }, [entry(REVIEW_A, 'Stream one'), entry(REVIEW_B, 'Stream two')])
   await page.reload()
-  await page.evaluate(() => window.vlasiichukclip.settings.replaceApiKey('openrouterApiKey', 'sk-or-test-not-real'))
+  await page.evaluate(() => window.vclip.settings.replaceApiKey('openrouterApiKey', 'sk-or-test-not-real'))
   await page.getByRole('button', { name: /^Jobs/ }).first().click()
   await page.getByText('Needs your review').waitFor()
-  const started = await page.evaluate(() => window.vlasiichukclip.job.start({
+  const started = await page.evaluate(() => window.vclip.job.start({
     videoUrl: 'https://www.youtube.com/watch?v=aaaaaaaaaaa', maxClips: null, autoClipCount: true, durationRanges: null, aspectRatio: '9:16',
     layoutStyle: 'auto', layoutVision: true, pacing: 'tight', includeCaptions: true, captionPreset: 'pop', startTimeSeconds: null,
     endTimeSeconds: null, bannerPlatform: null, bannerChannelUrl: null
@@ -94,7 +94,7 @@ test('the real start path lists the job while it runs, with jobs waiting for rev
 })
 
 test('opening Jobs from the sidebar shows the list with the new job, not the job looked at last', { timeout: 120000 }, async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-jobs-focus-'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-jobs-focus-'))
   const appDir = buildApp()
   const session = await launchApp({ appDir, userDataDir: path.join(root, 'user-data') })
   t.after(async () => { await session.close(); fs.rmSync(root, { recursive: true, force: true }) })

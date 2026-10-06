@@ -38,7 +38,7 @@ function loadMain(source, mocks = {}) {
 }
 
 /** A temp directory removed by the returned `cleanup`. */
-function tempDir(prefix = 'vlasiichukclip-zernio-') {
+function tempDir(prefix = 'vclip-zernio-') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
   return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) }
 }

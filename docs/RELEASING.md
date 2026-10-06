@@ -28,7 +28,7 @@ The website links to [GitHub Releases](https://github.com/Hedgehog12/vclip/relea
 
 macOS: `bash scripts/prepare-resources.sh arm64` on Apple silicon, or `x64` on Intel. This builds LGPL FFmpeg and stages its caption libraries and licenses.
 
-Windows/Linux x64: `python scripts/release/stage-runtime.py` from a clean checkout. Windows requires Visual C++ build tools for the relocatable yt-dlp launcher. Linux requires `patchelf`. Python and FFmpeg downloads are pinned by SHA-256 in `scripts/release/runtime-lock.json`. An HTTPS mirror may be selected with `VLASIICHUKCLIP_FFMPEG_MIRROR`, preserving the same digest checks. Upstream FFmpeg daily assets expire; official automation keeps a private mirror of the exact archives.
+Windows/Linux x64: `python scripts/release/stage-runtime.py` from a clean checkout. Windows requires Visual C++ build tools for the relocatable yt-dlp launcher. Linux requires `patchelf`. Python and FFmpeg downloads are pinned by SHA-256 in `scripts/release/runtime-lock.json`. An HTTPS mirror may be selected with `VCLIP_FFMPEG_MIRROR`, preserving the same digest checks. Upstream FFmpeg daily assets expire; official automation keeps a private mirror of the exact archives.
 
 Run `npm ci`, application and engine tests, dependency audits, `npm run build`, then electron-builder for the native target. Official Windows builds use `scripts/release/windows-config.cjs` with Azure signing configuration and `forceCodeSigning`; unsigned developer packages must never be labeled official releases.
 

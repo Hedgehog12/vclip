@@ -3,8 +3,8 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, renameSync, statSync 
 import { join } from 'path'
 
 // Simple structured JSON-lines logger that writes to app.getPath('logs').
-// On macOS that is ~/Library/Logs/vClip/vlasiichukclip.log.
-// On Windows that is %APPDATA%\VlasiichukClip\logs\vlasiichukclip.log.
+// On macOS that is ~/Library/Logs/vClip/vclip.log.
+// On Windows that is %APPDATA%\vClip\logs\vclip.log.
 //
 // Why a custom logger instead of electron-log: zero new dependencies, and we
 // only need info/warn/error + bounded rotation. Good enough for diagnostics.
@@ -18,11 +18,11 @@ function resolveLogFilePath(): string {
   try {
     const dir = app.getPath('logs')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    cachedLogFilePath = join(dir, 'vlasiichukclip.log')
+    cachedLogFilePath = join(dir, 'vclip.log')
   } catch {
     // Fallback: write next to userData if getPath('logs') is unavailable.
     const dir = app.getPath('userData')
-    cachedLogFilePath = join(dir, 'vlasiichukclip.log')
+    cachedLogFilePath = join(dir, 'vclip.log')
   }
   return cachedLogFilePath
 }

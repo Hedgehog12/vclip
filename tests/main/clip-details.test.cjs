@@ -17,7 +17,7 @@ function loadModule(file, mocks = {}) {
 const jobOutput = loadModule('shared/job-output.ts')
 
 function setup() {
-  const library = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vlasiichukclip-details-')))
+  const library = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vclip-details-')))
   const runDir = path.join(library, 'run')
   fs.mkdirSync(runDir)
   const clip = path.join(runDir, 'clip_01.mp4')

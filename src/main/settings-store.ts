@@ -34,10 +34,21 @@ export type PublicSettings = EditableSettings & {
 const SECRET_KEYS = ['openrouterApiKey', 'zernioApiKey'] as const
 type SecretKey = (typeof SECRET_KEYS)[number]
 
+/**
+ * New installs keep clips in ~/vClip. Before the rename to vClip the default was
+ * ~/VlasiichukClip; where that folder exists it stays the default, because the
+ * saved clips and their records point into it.
+ */
+function defaultOutputDirectory(): string {
+  const home = app.getPath('home')
+  const legacy = join(home, 'VlasiichukClip')
+  return existsSync(legacy) ? legacy : join(home, 'vClip')
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   openrouterApiKey: '',
   zernioApiKey: '',
-  outputDirectory: join(app.getPath('home'), 'VlasiichukClip'),
+  outputDirectory: defaultOutputDirectory(),
   pythonPath: process.platform === 'win32' ? 'python' : 'python3',
   customVocabulary: '',
   thumbnailPrompt: DEFAULT_THUMBNAIL_PROMPT,

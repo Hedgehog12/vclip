@@ -28,15 +28,15 @@ let mainWindow: BrowserWindow | null = null
 
 // Before the rename to vClip the app kept its data in a "VlasiichukClip" folder.
 // Keep using it when it exists, so existing settings, keys and posts carry over.
-if (!process.env.VLASIICHUKCLIP_USER_DATA_DIR) {
+if (!process.env.VCLIP_USER_DATA_DIR) {
   const legacyUserData = join(app.getPath('appData'), 'VlasiichukClip')
   if (existsSync(legacyUserData)) app.setPath('userData', legacyUserData)
 }
 
 // Development-only: isolated settings (and single-instance lock) for
 // end-to-end tests, so a test run never touches the developer's real app.
-if (!app.isPackaged && process.env.VLASIICHUKCLIP_USER_DATA_DIR) {
-  const isolated = process.env.VLASIICHUKCLIP_USER_DATA_DIR
+if (!app.isPackaged && process.env.VCLIP_USER_DATA_DIR) {
+  const isolated = process.env.VCLIP_USER_DATA_DIR
   app.setPath('userData', isolated)
   // Settings migrate (and then delete) pre-rename files found under appData
   // and home, and logs default to the real app's file: point all of those
@@ -51,7 +51,7 @@ if (!app.isPackaged && process.env.VLASIICHUKCLIP_USER_DATA_DIR) {
 
 // Development-only: scripted end-to-end runs keep the window hidden and out
 // of the Dock, so a test run never takes over the developer's screen.
-const hiddenForTests = !app.isPackaged && process.env.VLASIICHUKCLIP_E2E === '1'
+const hiddenForTests = !app.isPackaged && process.env.VCLIP_E2E === '1'
 if (hiddenForTests) {
   // Nor may it open the developer's real browser from any link.
   shell.openExternal = async (url: string): Promise<void> => {
@@ -155,7 +155,7 @@ protocol.registerSchemesAsPrivileged([
 
 app.whenReady().then(() => {
   cleanStaleWorkspaces()
-  electronApp.setAppUserModelId('pro.vlasiichuk.vlasiichukclip')
+  electronApp.setAppUserModelId('pro.vlasiichuk.vclip')
   if (hiddenForTests) app.dock?.hide()
   else if (is.dev) app.dock?.setIcon(devIcon)
 

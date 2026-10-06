@@ -71,7 +71,7 @@ export interface ToolStatus {
   bridgePath: string
 }
 
-export interface VlasiichukClipAPI {
+export interface VClipAPI {
   models: { list: (refresh?: boolean) => Promise<OpenRouterCatalog> }
   automations: {
     list: () => Promise<Automation[]>
@@ -225,7 +225,7 @@ function subscribe<T>(channel: string, callback: (data: T) => void): () => void 
   return () => ipcRenderer.removeListener(channel, handler)
 }
 
-const api: VlasiichukClipAPI = {
+const api: VClipAPI = {
   models: { list: (refresh = false) => ipcRenderer.invoke('models:list', refresh) },
   automations: {
     list: () => ipcRenderer.invoke('automations:list'),
@@ -341,4 +341,4 @@ const api: VlasiichukClipAPI = {
   }
 }
 
-contextBridge.exposeInMainWorld('vlasiichukclip', api)
+contextBridge.exposeInMainWorld('vclip', api)
