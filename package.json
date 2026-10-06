@@ -1,7 +1,7 @@
 {
   "name": "vclip",
   "productName": "vClip",
-  "version": "0.1.17",
+  "version": "0.2.0",
   "description": "vClip: open-source AI video clipping by vlasiichuk.pro. Turn long videos into captioned short-form clips, locally, with your own API keys.",
   "main": "./out/main/index.js",
   "author": "Julian Vlasiichuk",
